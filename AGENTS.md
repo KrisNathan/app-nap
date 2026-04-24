@@ -60,3 +60,24 @@ Example target: `firefox`
 - Freeze only when every window for that pid is inactive.
 - Resume as soon as any window for that pid becomes active again.
 - A frozen window can still be unminimized; that event must still flow through KWin to the daemon.
+
+## Install and Uninstall
+
+Installation should:
+
+1. Check system dependencies
+2. Build rust release binary
+3. Install rust binary as service
+4. Install KWin script using `kpackagetool6`
+
+Uninstall should:
+
+1. Cleanly revert every file, service, package entry, and config created by install.
+2. Mirror install step-for-step where possible.
+3. Leave user data and unrelated system state untouched.
+
+Install and uninstall must stay symmetrical:
+
+- Every new install action needs a matching uninstall cleanup in the same change.
+- Any artifact created by install must be removed or disabled by uninstall.
+- If install becomes idempotent, uninstall should be safe to rerun too.

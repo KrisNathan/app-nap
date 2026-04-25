@@ -30,11 +30,7 @@ function isTrackable(window) {
 
 // MAIN
 function main() {
-  debug("INIT 2");
-
-  const id = "random-uuid";
-  const pid = 1234;
-  callDBus(SERVICE, PATH, IFACE, "AddWindow", id, pid);
+  debug("INIT");
 
   workspace.windowAdded.connect(function (window) {
     if (!isTrackable(window)) {
@@ -54,6 +50,8 @@ function main() {
       callDBus(SERVICE, PATH, IFACE, "MinimizedChanged", id, pid, minimized);
     });
   });
+  // if proc is minimized, frozen
+  // this signal will be emitted only when the window is unminimized first
   workspace.windowRemoved.connect(function (window) {
     if (!isTrackable(window)) {
       return;

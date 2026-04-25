@@ -50,6 +50,10 @@ KWin Scripting Console:
 plasma-interactiveconsole --kwin
 ```
 
+```sh
+journalctl -f QT_CATEGORY=js QT_CATEGORY=kwin_scripting
+```
+
 ```js
 const SERVICE = "dev.appnap.AppNap";
 const PATH = "/dev/appnap/AppNap";

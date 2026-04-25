@@ -71,3 +71,46 @@ callDBus(
   active,
 );
 ```
+
+## CPU Throttling as alternate
+
+Solves:
+- Process instability
+- Unable to close minimized window without unminimizing (because KDE doesn't have before close signal/event)
+
+For now the concrete implementation should just use systemd (in the future we can add a direct cgroupv2 edit for nonsystemd systems):
+- Easy
+- Systemd covers most linux desktop
+- We won't conflict with systemd (apparently it can overwrite our changes on cgroupv2 files; moving the process to a separate cgroup is out of the question as it can get messy very quickly)
+
+We can obtain the cgroup of a process with specific pid:
+
+```sh
+ps -o cgroup 89682
+```
+
+Output:
+
+```
+CGROUP
+0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-com.brave.Browser-1760258369.scope
+```
+
+Then we can throttle with systemd:
+
+```sh
+systemctl --user set-property app-flatpak-com.brave.Browser-1760258369.scope CPUQuota=5%
+```
+
+To reset:
+
+```sh
+systemctl --user set-property app-flatpak-com.brave.Browser-1760258369.scope CPUQuota=
+```
+
+Other systemctl scope considerations:
+- cpusched
+  - `CPUSchedulingPolicy=idle`: If an app is being too aggressive in the background even at 1%, you can also set CPUSchedulingPolicy=idle via systemd. This tells the kernel "only give this app cycles if absolutely no other process on the system wants them."
+- io
+  - `IOWeight=1` (default is 100): Setting it to 1 means that if any other app needs the disk, it gets 100x more priority than the napping app.
+  - `IOSchedulingClass=idle`:  The app will only be allowed to use the disk if the drive is otherwise 100% idle.

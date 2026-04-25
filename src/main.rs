@@ -1,5 +1,8 @@
-use libc::{SIGCONT, SIGSTOP, pid_t};
-use std::{collections::HashMap, error::Error, future::pending, io, sync::Arc};
+mod signal_controller;
+
+use libc::pid_t;
+use signal_controller::{SignalController, SystemSignalController};
+use std::{collections::HashMap, error::Error, future::pending, sync::Arc};
 use zbus::{connection, fdo, interface};
 
 #[derive(Clone, Copy, Debug)]
@@ -19,34 +22,6 @@ impl Process {
             windows: HashMap::new(),
             is_napping: false,
         }
-    }
-}
-
-trait SignalController: Send + Sync {
-    fn send_stop(&self, pid: pid_t) -> io::Result<()>;
-    fn send_cont(&self, pid: pid_t) -> io::Result<()>;
-}
-
-#[derive(Default)]
-struct SystemSignalController;
-
-impl SignalController for SystemSignalController {
-    fn send_stop(&self, pid: pid_t) -> io::Result<()> {
-        send_signal(pid, SIGSTOP)
-    }
-
-    fn send_cont(&self, pid: pid_t) -> io::Result<()> {
-        send_signal(pid, SIGCONT)
-    }
-}
-
-fn send_signal(pid: pid_t, signal: i32) -> io::Result<()> {
-    // SAFETY: libc::kill is called with a numeric PID and valid signal constant.
-    let rc = unsafe { libc::kill(pid, signal) };
-    if rc == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
     }
 }
 
@@ -176,7 +151,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
+    use std::{io, sync::Mutex};
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum SignalAction {

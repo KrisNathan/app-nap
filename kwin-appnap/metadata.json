@@ -5,7 +5,7 @@
     "Id": "appnap",
     "Version": "1.0",
     "License": "GPLv3",
-    "Website": "https://github.com/kris/app-pause"
+    "Website": "https://github.com/KrisNathan/app-nap"
   },
   "X-Plasma-API": "javascript",
   "X-Plasma-MainScript": "code/main.js",

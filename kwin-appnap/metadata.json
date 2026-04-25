@@ -1,0 +1,13 @@
+{
+  "KPlugin": {
+    "Name": "App Nap Bridge",
+    "Description": "Forward KWin window state to the App Nap daemon",
+    "Id": "appnap",
+    "Version": "1.0",
+    "License": "GPLv3",
+    "Website": "https://github.com/kris/app-pause"
+  },
+  "X-Plasma-API": "javascript",
+  "X-Plasma-MainScript": "code/main.js",
+  "KPackageStructure": "KWin/Script"
+}

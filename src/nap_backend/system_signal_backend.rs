@@ -1,11 +1,11 @@
-use super::SignalController;
+use super::NapBackend;
 use libc::{SIGCONT, SIGSTOP, pid_t};
 use std::io;
 
 #[derive(Default)]
 pub struct SystemSignalController;
 
-impl SignalController for SystemSignalController {
+impl NapBackend for SystemSignalController {
     fn send_stop(&self, pid: pid_t) -> io::Result<()> {
         send_signal(pid, SIGSTOP)
     }

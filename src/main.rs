@@ -1,7 +1,7 @@
-mod signal_controller;
+mod nap_backend;
 
 use libc::pid_t;
-use signal_controller::{SignalController, SystemSignalController};
+use nap_backend::{NapBackend, SystemSignalController};
 use std::{collections::HashMap, error::Error, future::pending, sync::Arc};
 use zbus::{connection, fdo, interface};
 
@@ -27,14 +27,14 @@ impl Process {
 
 struct Daemon {
     processes: HashMap<pid_t, Process>,
-    signal_controller: Arc<dyn SignalController>,
+    nap_backend: Arc<dyn NapBackend>,
 }
 
 impl Daemon {
-    fn new(signal_controller: Arc<dyn SignalController>) -> Self {
+    fn new(nap_backend: Arc<dyn NapBackend>) -> Self {
         Self {
             processes: HashMap::new(),
-            signal_controller,
+            nap_backend,
         }
     }
 
@@ -61,7 +61,7 @@ impl Daemon {
 
         if has_active_window {
             if process.is_napping {
-                self.signal_controller.send_cont(pid).map_err(|err| {
+                self.nap_backend.send_cont(pid).map_err(|err| {
                     fdo::Error::Failed(format!("failed to SIGCONT pid {pid}: {err}"))
                 })?;
                 process.is_napping = false;
@@ -70,7 +70,7 @@ impl Daemon {
         }
 
         if !process.is_napping && !media_playing {
-            self.signal_controller
+            self.nap_backend
                 .send_stop(pid)
                 .map_err(|err| fdo::Error::Failed(format!("failed to SIGSTOP pid {pid}: {err}")))?;
             process.is_napping = true;
@@ -160,17 +160,17 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct MockSignalController {
+    struct MockNapBackend {
         actions: Mutex<Vec<SignalAction>>,
     }
 
-    impl MockSignalController {
+    impl MockNapBackend {
         fn actions(&self) -> Vec<SignalAction> {
             self.actions.lock().expect("lock poisoned").clone()
         }
     }
 
-    impl SignalController for MockSignalController {
+    impl NapBackend for MockNapBackend {
         fn send_stop(&self, pid: pid_t) -> io::Result<()> {
             self.actions
                 .lock()
@@ -188,8 +188,8 @@ mod tests {
         }
     }
 
-    fn daemon_with_mock() -> (Daemon, Arc<MockSignalController>) {
-        let mock = Arc::new(MockSignalController::default());
+    fn daemon_with_mock() -> (Daemon, Arc<MockNapBackend>) {
+        let mock = Arc::new(MockNapBackend::default());
         let daemon = Daemon::new(mock.clone());
         (daemon, mock)
     }

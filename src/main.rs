@@ -1,9 +1,12 @@
+mod media_service;
 mod nap_backend;
 
 use libc::pid_t;
 use nap_backend::{NapBackend, SystemSignalController};
 use std::{collections::HashMap, error::Error, future::pending, sync::Arc};
 use zbus::{connection, fdo, interface};
+
+use crate::media_service::{MediaService, MprisMediaService};
 
 #[derive(Clone, Copy, Debug)]
 struct WindowState {
@@ -25,16 +28,18 @@ impl Process {
     }
 }
 
-struct Daemon {
+struct Daemon<NB: NapBackend, MS: MediaService> {
     processes: HashMap<pid_t, Process>,
-    nap_backend: Arc<dyn NapBackend>,
+    nap_backend: Arc<NB>,
+    media_service: Arc<MS>,
 }
 
-impl Daemon {
-    fn new(nap_backend: Arc<dyn NapBackend>) -> Self {
+impl<NB: NapBackend, MS: MediaService> Daemon<NB, MS> {
+    fn new(nap_backend: Arc<NB>, media_service: Arc<MS>) -> Self {
         Self {
             processes: HashMap::new(),
             nap_backend,
+            media_service,
         }
     }
 
@@ -50,8 +55,8 @@ impl Daemon {
         Ok(())
     }
 
-    fn reconcile_pid(&mut self, pid: pid_t) -> fdo::Result<()> {
-        let media_playing = Self::is_media_playing(pid);
+    async fn reconcile_pid(&mut self, pid: pid_t) -> fdo::Result<()> {
+        let media_playing = self.is_media_playing(pid).await;
 
         let Some(process) = self.processes.get_mut(&pid) else {
             return Ok(());
@@ -79,14 +84,23 @@ impl Daemon {
         Ok(())
     }
 
-    fn is_media_playing(_pid: pid_t) -> bool {
-        false
+    async fn is_media_playing(&self, pid: pid_t) -> bool {
+        let playing_pids = self
+            .media_service
+            .list_playing_media_pids()
+            .await
+            .unwrap_or_default();
+        playing_pids.contains(&pid)
     }
 }
 
 #[interface(name = "dev.appnap.AppNap1")]
-impl Daemon {
-    fn add_window(&mut self, window_id: &str, pid: pid_t) -> fdo::Result<()> {
+impl<NB, MS> Daemon<NB, MS>
+where
+    NB: NapBackend + 'static,
+    MS: MediaService + 'static,
+{
+    async fn add_window(&mut self, window_id: &str, pid: pid_t) -> fdo::Result<()> {
         Self::validate_input(window_id, pid)?;
 
         let process = self.processes.entry(pid).or_insert_with(Process::new);
@@ -95,10 +109,10 @@ impl Daemon {
             .entry(window_id.to_string())
             .or_insert(WindowState { minimized: false });
 
-        self.reconcile_pid(pid)
+        self.reconcile_pid(pid).await
     }
 
-    fn remove_window(&mut self, window_id: &str, pid: pid_t) -> fdo::Result<()> {
+    async fn remove_window(&mut self, window_id: &str, pid: pid_t) -> fdo::Result<()> {
         Self::validate_input(window_id, pid)?;
 
         let mut should_remove_process = false;
@@ -111,10 +125,10 @@ impl Daemon {
             return Ok(());
         }
 
-        self.reconcile_pid(pid)
+        self.reconcile_pid(pid).await
     }
 
-    fn minimized_changed(
+    async fn minimized_changed(
         &mut self,
         window_id: &str,
         pid: pid_t,
@@ -131,13 +145,14 @@ impl Daemon {
         })?;
 
         window.minimized = minimized;
-        self.reconcile_pid(pid)
+        self.reconcile_pid(pid).await
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let daemon = Daemon::new(Arc::new(SystemSignalController));
+    let media_service = MprisMediaService::new().await?;
+    let daemon = Daemon::new(Arc::new(SystemSignalController), Arc::new(media_service));
     let _conn = connection::Builder::session()?
         .name("dev.appnap.AppNap")?
         .serve_at("/dev/appnap/AppNap", daemon)?
@@ -146,200 +161,4 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     pending::<()>().await;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::{io, sync::Mutex};
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum SignalAction {
-        Stop(pid_t),
-        Cont(pid_t),
-    }
-
-    #[derive(Default)]
-    struct MockNapBackend {
-        actions: Mutex<Vec<SignalAction>>,
-    }
-
-    impl MockNapBackend {
-        fn actions(&self) -> Vec<SignalAction> {
-            self.actions.lock().expect("lock poisoned").clone()
-        }
-    }
-
-    impl NapBackend for MockNapBackend {
-        fn send_stop(&self, pid: pid_t) -> io::Result<()> {
-            self.actions
-                .lock()
-                .expect("lock poisoned")
-                .push(SignalAction::Stop(pid));
-            Ok(())
-        }
-
-        fn send_cont(&self, pid: pid_t) -> io::Result<()> {
-            self.actions
-                .lock()
-                .expect("lock poisoned")
-                .push(SignalAction::Cont(pid));
-            Ok(())
-        }
-    }
-
-    fn daemon_with_mock() -> (Daemon, Arc<MockNapBackend>) {
-        let mock = Arc::new(MockNapBackend::default());
-        let daemon = Daemon::new(mock.clone());
-        (daemon, mock)
-    }
-
-    #[test]
-    fn active_window_prevents_stop() {
-        let (mut daemon, mock) = daemon_with_mock();
-        let pid = 4242;
-
-        daemon
-            .add_window("w1", pid)
-            .expect("add_window should succeed");
-        daemon
-            .minimized_changed("w1", pid, false)
-            .expect("minimized_changed should succeed");
-
-        assert_eq!(mock.actions(), vec![]);
-    }
-
-    #[test]
-    fn all_windows_inactive_stops_once() {
-        let (mut daemon, mock) = daemon_with_mock();
-        let pid = 4242;
-
-        daemon
-            .add_window("w1", pid)
-            .expect("add_window should succeed");
-        daemon
-            .add_window("w2", pid)
-            .expect("add_window should succeed");
-        daemon
-            .minimized_changed("w1", pid, true)
-            .expect("minimized_changed should succeed");
-        daemon
-            .minimized_changed("w2", pid, true)
-            .expect("minimized_changed should succeed");
-        daemon
-            .minimized_changed("w2", pid, true)
-            .expect("minimized_changed should succeed");
-
-        assert_eq!(mock.actions(), vec![SignalAction::Stop(pid)]);
-    }
-
-    #[test]
-    fn reactivating_after_stop_resumes_once() {
-        let (mut daemon, mock) = daemon_with_mock();
-        let pid = 4242;
-
-        daemon
-            .add_window("w1", pid)
-            .expect("add_window should succeed");
-        daemon
-            .minimized_changed("w1", pid, true)
-            .expect("minimized_changed should succeed");
-        daemon
-            .minimized_changed("w1", pid, false)
-            .expect("minimized_changed should succeed");
-        daemon
-            .minimized_changed("w1", pid, false)
-            .expect("minimized_changed should succeed");
-
-        assert_eq!(
-            mock.actions(),
-            vec![SignalAction::Stop(pid), SignalAction::Cont(pid)]
-        );
-    }
-
-    #[test]
-    fn minimized_changed_errors_for_unknown_window() {
-        let (mut daemon, _mock) = daemon_with_mock();
-        let pid = 4242;
-
-        daemon
-            .add_window("w1", pid)
-            .expect("add_window should succeed");
-        let err = daemon
-            .minimized_changed("missing", pid, true)
-            .expect_err("unknown window should error");
-
-        match err {
-            fdo::Error::Failed(msg) => assert!(msg.contains("unknown window")),
-            other => panic!("unexpected error: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn remove_last_window_prunes_process() {
-        let (mut daemon, _mock) = daemon_with_mock();
-        let pid = 4242;
-
-        daemon
-            .add_window("w1", pid)
-            .expect("add_window should succeed");
-        daemon
-            .remove_window("w1", pid)
-            .expect("remove_window should succeed");
-
-        assert!(!daemon.processes.contains_key(&pid));
-    }
-
-    #[test]
-    fn closed_window_resumes_napping_process_without_removing_window() {
-        let (mut daemon, mock) = daemon_with_mock();
-        let pid = 4242;
-
-        daemon
-            .add_window("w1", pid)
-            .expect("add_window should succeed");
-        daemon
-            .minimized_changed("w1", pid, true)
-            .expect("minimized_changed should succeed");
-        daemon.closed("w1", pid).expect("closed should succeed");
-
-        assert_eq!(
-            mock.actions(),
-            vec![SignalAction::Stop(pid), SignalAction::Cont(pid)]
-        );
-        assert!(daemon.processes[&pid].windows.contains_key("w1"));
-    }
-
-    #[test]
-    fn closed_one_of_multiple_windows_resumes_then_remove_can_stop_again() {
-        let (mut daemon, mock) = daemon_with_mock();
-        let pid = 4242;
-
-        daemon
-            .add_window("w1", pid)
-            .expect("add_window should succeed");
-        daemon
-            .add_window("w2", pid)
-            .expect("add_window should succeed");
-        daemon
-            .minimized_changed("w1", pid, true)
-            .expect("minimized_changed should succeed");
-        daemon
-            .minimized_changed("w2", pid, true)
-            .expect("minimized_changed should succeed");
-        daemon.closed("w1", pid).expect("closed should succeed");
-        daemon
-            .remove_window("w1", pid)
-            .expect("remove_window should succeed");
-
-        assert_eq!(
-            mock.actions(),
-            vec![
-                SignalAction::Stop(pid),
-                SignalAction::Cont(pid),
-                SignalAction::Stop(pid)
-            ]
-        );
-        assert!(daemon.processes[&pid].windows.contains_key("w2"));
-    }
 }

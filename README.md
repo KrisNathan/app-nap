@@ -2,6 +2,23 @@
 
 `app-nap` is a Linux PoC that freezes inactive apps on KDE Plasma 6.
 
+## How It Works
+
+- KWin script watches each window's `minimized` state.
+- When a window becomes inactive or minimized, the KWin script sends that
+  window's state and PID to the Rust daemon over session D-Bus.
+- The daemon tracks all windows per PID, not per window. If any window for a
+  PID is active, that app stays awake. If all windows are inactive and no media
+  is playing, the app can nap.
+- "Nap" is the power-saving action. The backend is selected in
+  `~/.config/app-nap/app-nap.toml`:
+  - `signal`: send `SIGSTOP` to freeze the process, then `SIGCONT` to resume
+    it. Caveat: a minimized window usually has to be unminimized before it can
+    be closed.
+  - `systemd-scope`: find the app's user scope or service and set a low (5%)
+    `CPUQuota` while it is napping, then clear the quota to resume.
+- If a minimized app becomes active again, the daemon restores it.
+
 ## Install
 
 Install the release binary, user systemd service, config, and KWin script:

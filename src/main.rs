@@ -6,7 +6,10 @@ use nap_backend::{NapBackend, SystemSignalController};
 use std::{collections::HashMap, error::Error, future::pending, sync::Arc};
 use zbus::{connection, fdo, interface};
 
-use crate::media_service::{MediaService, MprisMediaService};
+use crate::{
+    media_service::{MediaService, MprisMediaService},
+    nap_backend::SystemdScopeQuotaBackend,
+};
 
 #[derive(Clone, Copy, Debug)]
 struct WindowState {
@@ -152,7 +155,7 @@ where
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let media_service = MprisMediaService::new().await?;
-    let daemon = Daemon::new(Arc::new(SystemSignalController), Arc::new(media_service));
+    let daemon = Daemon::new(Arc::new(SystemdScopeQuotaBackend), Arc::new(media_service));
     let _conn = connection::Builder::session()?
         .name("dev.appnap.AppNap")?
         .serve_at("/dev/appnap/AppNap", daemon)?

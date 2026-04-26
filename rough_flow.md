@@ -9,15 +9,23 @@
 
 We can obtain currently "playing" media via mpris dbus and then trace the pid of it.
 
-```
-kris@fedora:~$ qdbus | grep org.mpris.MediaPlayer2
+```sh
+$ qdbus | grep org.mpris.MediaPlayer2
  org.mpris.MediaPlayer2.brave.instance2
  org.mpris.MediaPlayer2.firefox.instance_1_602
-kris@fedora:~$ qdbus org.mpris.MediaPlayer2.firefox.instance_1_602 /org/mpris/MediaPlayer2 org.freedesktop.DBus.Prop
-erties.Get org.mpris.MediaPlayer2.Player PlaybackStatus
+ ```
+ 
+ ```sh
+$ qdbus org.mpris.MediaPlayer2.firefox.instance_1_602 /org/mpris/MediaPlayer2 org.freedesktop.DBus.Properties.Get org.mpris.MediaPlayer2.Player PlaybackStatus
 Playing
-kris@fedora:~$ qdbus org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.GetConnectionUnixProcessID org.
-mpris.MediaPlayer2.firefox.instance_1_602
+```
+For brave apparently it doesnt export Properties.Get so I have to:
+```sh
+gdbus call --session --dest org.mpris.MediaPlayer2.brave.instance2 --object-path /org/mpris/MediaPlayer2 --method org.freedesktop.DBus.Properties.Get org.mpris.MediaPlayer2.Player PlaybackStatus
+```
+
+```sh
+$ qdbus org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.GetConnectionUnixProcessID org.mpris.MediaPlayer2.firefox.instance_1_602
 67229
 ```
 I checked kwin debug and the pid is correct, it is 67229 for the firefox window

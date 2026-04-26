@@ -16,7 +16,7 @@ impl ConfService for TomlConfService {
             .join("app-nap")
             .join("app-nap.toml");
         Self {
-            config_path: config_path,
+            config_path,
             fallback: DefaultConfService::new(),
             loaded_conf: None,
         }

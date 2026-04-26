@@ -1,12 +1,15 @@
+mod conf_service;
 mod media_service;
 mod nap_backend;
 
+use conf_service::{ConfService, NapBackendType};
 use libc::pid_t;
 use nap_backend::{NapBackend, SystemSignalController};
 use std::{collections::HashMap, error::Error, future::pending, sync::Arc};
 use zbus::{connection, fdo, interface};
 
 use crate::{
+    conf_service::TomlConfService,
     media_service::{MediaService, MprisMediaService},
     nap_backend::SystemdScopeQuotaBackend,
 };
@@ -31,14 +34,14 @@ impl Process {
     }
 }
 
-struct Daemon<NB: NapBackend, MS: MediaService> {
+struct Daemon<MS: MediaService> {
     processes: HashMap<pid_t, Process>,
-    nap_backend: Arc<NB>,
+    nap_backend: Arc<dyn NapBackend>,
     media_service: Arc<MS>,
 }
 
-impl<NB: NapBackend, MS: MediaService> Daemon<NB, MS> {
-    fn new(nap_backend: Arc<NB>, media_service: Arc<MS>) -> Self {
+impl<MS: MediaService> Daemon<MS> {
+    fn new(nap_backend: Arc<dyn NapBackend>, media_service: Arc<MS>) -> Self {
         Self {
             processes: HashMap::new(),
             nap_backend,
@@ -98,9 +101,8 @@ impl<NB: NapBackend, MS: MediaService> Daemon<NB, MS> {
 }
 
 #[interface(name = "dev.appnap.AppNap1")]
-impl<NB, MS> Daemon<NB, MS>
+impl<MS> Daemon<MS>
 where
-    NB: NapBackend + 'static,
     MS: MediaService + 'static,
 {
     async fn add_window(&mut self, window_id: &str, pid: pid_t) -> fdo::Result<()> {
@@ -154,8 +156,17 @@ where
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let mut conf_service = TomlConfService::new();
+    conf_service.load()?;
+    let conf = conf_service.get_conf()?.clone();
+
+    let nap_backend: Arc<dyn NapBackend> = match conf.nap_backend_type {
+        NapBackendType::SystemdScope => Arc::new(SystemdScopeQuotaBackend),
+        NapBackendType::Signal => Arc::new(SystemSignalController),
+    };
+
     let media_service = MprisMediaService::new().await?;
-    let daemon = Daemon::new(Arc::new(SystemdScopeQuotaBackend), Arc::new(media_service));
+    let daemon = Daemon::new(nap_backend, Arc::new(media_service));
     let _conn = connection::Builder::session()?
         .name("dev.appnap.AppNap")?
         .serve_at("/dev/appnap/AppNap", daemon)?

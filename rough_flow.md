@@ -122,3 +122,24 @@ Other systemctl scope considerations:
 - io
   - `IOWeight=1` (default is 100): Setting it to 1 means that if any other app needs the disk, it gets 100x more priority than the napping app.
   - `IOSchedulingClass=idle`:  The app will only be allowed to use the disk if the drive is otherwise 100% idle.
+
+## Handling Apps That Minimize to Tray When Closed
+
+When KWin reports that a tracked window is removed or closed:
+
+1. Remove that window from the daemon's per-pid window map.
+2. If the pid still has other tracked windows, reconcile the pid as normal.
+3. If the pid has zero tracked windows left:
+   - If app-nap had napped the pid, reset the nap backend first.
+     - `systemd` backend: clear `CPUQuota=`.
+     - `signal` backend: send `SIGCONT`, but only because app-nap previously sent `SIGSTOP`.
+   - Remove the pid from the daemon `HashMap`.
+
+This handles tray-close apps because the process may survive after its last visible window disappears.
+If resetting the backend fails because the process already exited, treat that as harmless cleanup failure.
+
+KWin side:
+
+- Keep using `workspace.windowRemoved`.
+- Also connect each tracked window's `closed()` signal as a fallback if needed.
+- Make daemon-side remove handling idempotent so duplicate remove/close notifications are safe.

@@ -4,7 +4,7 @@ pub use process::{Process, WindowState};
 
 use crate::{media_service::MediaService, nap_backend::NapBackend};
 use libc::pid_t;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, io, sync::Arc};
 use zbus::{fdo, interface};
 
 pub struct Daemon<MS: MediaService> {
@@ -71,6 +71,21 @@ impl<MS: MediaService> Daemon<MS> {
             .unwrap_or_default();
         playing_pids.contains(&pid)
     }
+
+    fn cleanup_napped_pid(&self, pid: pid_t) -> fdo::Result<()> {
+        match self.nap_backend.send_cont(pid) {
+            Ok(()) => Ok(()),
+            Err(_) if Self::is_process_gone(pid) => Ok(()),
+            Err(err) => Err(fdo::Error::Failed(format!(
+                "failed to cleanup napped pid {pid}: {err}"
+            ))),
+        }
+    }
+
+    fn is_process_gone(pid: pid_t) -> bool {
+        let result = unsafe { libc::kill(pid, 0) };
+        result == -1 && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+    }
 }
 
 #[interface(name = "dev.appnap.AppNap1")]
@@ -93,14 +108,17 @@ where
     async fn remove_window(&mut self, window_id: &str, pid: pid_t) -> fdo::Result<()> {
         Self::validate_input(window_id, pid)?;
 
-        let mut should_remove_process = false;
         if let Some(process) = self.processes.get_mut(&pid) {
             process.windows.remove(window_id);
-            should_remove_process = process.windows.is_empty();
-        }
-        if should_remove_process {
-            self.processes.remove(&pid);
-            return Ok(());
+
+            if process.windows.is_empty() {
+                if process.is_napping {
+                    self.cleanup_napped_pid(pid)?;
+                }
+
+                self.processes.remove(&pid);
+                return Ok(());
+            }
         }
 
         self.reconcile_pid(pid).await

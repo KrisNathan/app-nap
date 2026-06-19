@@ -75,4 +75,26 @@ mod tests {
 
         fs::remove_file(config_path).unwrap();
     }
+
+    #[test]
+    fn load_maps_systemd_freeze_backend_type_from_string() {
+        let config_path =
+            std::env::temp_dir().join(format!("app-nap-freeze-test-{}.toml", std::process::id()));
+        fs::write(&config_path, r#"nap_backend_type = "systemd-freeze""#).unwrap();
+
+        let mut service = TomlConfService {
+            config_path: config_path.clone(),
+            fallback: DefaultConfService::new(),
+            loaded_conf: None,
+        };
+
+        service.load().unwrap();
+
+        assert_eq!(
+            service.get_conf().unwrap().nap_backend_type,
+            NapBackendType::SystemdFreeze
+        );
+
+        fs::remove_file(config_path).unwrap();
+    }
 }

@@ -19,7 +19,8 @@ Current focus: a PoC for KDE Plasma 6.
    - maintains per-window `active` and `pid` state
    - maintains per-pid freeze state
    - tracks whether matching media is playing
-   - sends `SIGSTOP` and `SIGCONT` to the related pid
+   - applies the configured nap backend to the related pid (e.g. `SIGSTOP`/`SIGCONT`,
+     systemd `CPUQuota`, or systemd `freeze`/`thaw`)
 2. KWin script:
    - listens to KWin events and read-only values
    - sends window state to the Rust daemon via DBus
@@ -31,7 +32,7 @@ Current focus: a PoC for KDE Plasma 6.
 - Aggregate state by pid, not by single window.
 - If one window for a pid is active, that pid must not stay frozen.
 - If all windows for a pid are inactive, that pid can be frozen.
-- Never send `SIGCONT` unless app-nap previously sent `SIGSTOP` for that pid.
+- Never resume a pid unless app-nap previously napped that pid.
 
 ## Media Playback
 
@@ -47,12 +48,12 @@ Example target: `firefox`
 2. KDE emits `activeChanged()` and the window `active` state becomes `false`.
 3. The KWin script sends the window state to the daemon over DBus.
 4. The Rust daemon updates its internal state.
-5. If all windows for `firefox`'s pid are inactive and no media is playing, send `SIGSTOP`.
+5. If all windows for `firefox`'s pid are inactive and no media is playing, apply the nap action (e.g. `SIGSTOP`, freeze the unit, or throttle the unit).
 6. User unminimizes or focuses `firefox`.
 7. KDE emits `activeChanged()` and the window `active` state becomes `true`.
 8. The KWin script sends the updated state to the daemon over DBus.
 9. The Rust daemon updates its internal state.
-10. If at least one window for that pid is active and the pid was previously stopped by app-nap, send `SIGCONT`.
+10. If at least one window for that pid is active and the pid was previously napped by app-nap, apply the resume action (e.g. `SIGCONT` or thaw the unit).
 
 ## Multiple Windows
 

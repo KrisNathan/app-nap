@@ -12,7 +12,9 @@ use crate::{
     conf_service::TomlConfService,
     daemon::Daemon,
     media_service::MprisMediaService,
-    nap_backend::{NapBackend, SystemSignalController, SystemdScopeQuotaBackend},
+    nap_backend::{
+        NapBackend, SystemSignalController, SystemdFreezeBackend, SystemdScopeQuotaBackend,
+    },
 };
 
 #[tokio::main]
@@ -23,6 +25,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let nap_backend: Arc<dyn NapBackend> = match conf.nap_backend_type {
         NapBackendType::SystemdScope => Arc::new(SystemdScopeQuotaBackend),
+        NapBackendType::SystemdFreeze => Arc::new(SystemdFreezeBackend),
         NapBackendType::Signal => Arc::new(SystemSignalController),
     };
 

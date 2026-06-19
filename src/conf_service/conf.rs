@@ -4,6 +4,7 @@ use std::{fmt, str::FromStr};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NapBackendType {
     Signal,
+    SystemdFreeze,
     SystemdScope,
 }
 
@@ -11,6 +12,7 @@ impl NapBackendType {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Signal => "signal",
+            Self::SystemdFreeze => "systemd-freeze",
             Self::SystemdScope => "systemd-scope",
         }
     }
@@ -28,6 +30,7 @@ impl FromStr for NapBackendType {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "signal" => Ok(Self::Signal),
+            "systemd-freeze" => Ok(Self::SystemdFreeze),
             "systemd-scope" => Ok(Self::SystemdScope),
             _ => Err(format!("unknown nap backend type: {value}")),
         }

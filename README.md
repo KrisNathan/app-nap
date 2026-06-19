@@ -17,6 +17,10 @@
     be closed.
   - `systemd-scope`: find the app's user scope or service and set a low (5%)
     `CPUQuota` while it is napping, then clear the quota to resume.
+  - `systemd-freeze`: find the app's user scope or service and freeze/thaw the
+    unit with `systemctl freeze`/`systemctl thaw`. This suspends the whole unit
+    cgroup; it only works on systems using the unified cgroup v2 hierarchy and
+    when the app is in a freezable systemd unit (`.scope` or `.service`).
 - If a minimized app becomes active again, the daemon restores it.
 
 ## Install
@@ -71,7 +75,9 @@ ps -o pid,stat,cmd -p <PID>
 ```
 
 When the window is minimized, the process should move to stopped state (`T` in
-`ps` output). When the window is restored, it should continue.
+`ps` output) only when using the `signal` backend. With the `systemd-freeze`
+backend, check the unit status with `systemctl --user status <unit>`; with the
+`systemd-scope` backend, the process stays runnable but is CPU-throttled.
 
 ## Direct Daemon Smoke Test
 

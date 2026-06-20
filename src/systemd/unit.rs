@@ -1,9 +1,13 @@
 use libc::pid_t;
 use std::io;
 
-use super::cgroup::get_process_cgroup;
+use super::cgroup::{get_process_cgroup, is_app_scope_cgroup};
 
 pub fn parse_systemd_unit(cgroup_output: &str) -> Option<String> {
+    let trimmed = cgroup_output.trim().split(':').last().unwrap_or("");
+    if !is_app_scope_cgroup(trimmed) {
+        return None;
+    }
     cgroup_output
         .lines()
         .flat_map(|line| line.trim().rsplit('/'))
@@ -37,14 +41,11 @@ mod tests {
     }
 
     #[test]
-    fn parses_service_from_ps_cgroup_output() {
+    fn refuses_session_slice_service() {
         let output =
             "0::/user.slice/user-1000.slice/user@1000.service/session.slice/pipewire.service\n";
 
-        assert_eq!(
-            parse_systemd_unit(output).as_deref(),
-            Some("pipewire.service")
-        );
+        assert_eq!(parse_systemd_unit(output), None);
     }
 
     #[test]

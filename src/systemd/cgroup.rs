@@ -14,7 +14,7 @@ fn trim_hierarchy_id(cgroup: String) -> String {
 /// - starts with "app-"
 /// - ends with ".scope" or ".service"
 /// - in app.slice/
-fn is_app_scope_cgroup(trimmed_cgroup: &str) -> bool {
+pub(crate) fn is_app_scope_cgroup(trimmed_cgroup: &str) -> bool {
     let last = trimmed_cgroup.rsplit('/').next().unwrap_or("");
     last.starts_with("app-")
         && (last.ends_with(".scope") || last.ends_with(".service"))

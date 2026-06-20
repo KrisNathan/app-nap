@@ -40,6 +40,27 @@ Current focus: a PoC for KDE Plasma 6.
 - If the app mapped to a pid is playing media, do not freeze it while playback is active.
 - When checking MPRIS players, map the player service name back to a Unix pid through DBus.
 
+## Idle Inhibition
+
+- Use KDE PowerDevil's `org.kde.Solid.PowerManagement.PolicyAgent` over DBus.
+- `ListInhibitions` returns `aas` (a list of `[who, why]` string lists), not
+  `a(ss)`. Only the `who` string is used.
+- The `who` string is the app's desktop/Flatpak ID (e.g.
+  `com.obsproject.Studio`, `firefox`), not the process name. It cannot be
+  matched against `/proc/<pid>/comm` (which is truncated to 15 chars and
+  doesn't carry the app ID for Flatpaks).
+- Instead, match `who` as a substring of `/proc/<pid>/cgroup`. The systemd
+  unit name in the cgroup path contains the app ID (e.g.
+  `app-flatpak-com.obsproject.Studio-<id>.scope`).
+- Idle inhibitors (screen recording, streaming, presentations, video calls)
+  are a hard "do not throttle" signal: a pid with an active inhibitor is never
+  frozen, and an already-frozen pid is thawed on the next reconcile.
+- No global fallback flag; unmatched inhibitors are ignored.
+- Detection is poll-based: `ListInhibitions` is queried during `reconcile_pid`,
+  matching the `MprisMediaService` pattern. A frozen app will not thaw until the
+  next KWin window event triggers a reconcile.
+
+
 ## Flow
 
 Example target: `firefox`

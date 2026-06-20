@@ -2,23 +2,31 @@ mod process;
 
 pub use process::{Process, WindowState};
 
-use crate::{media_service::MediaService, nap_backend::NapBackend};
+use crate::{
+    inhibit_service::InhibitService, media_service::MediaService, nap_backend::NapBackend,
+};
 use libc::pid_t;
 use std::{collections::HashMap, io, sync::Arc};
 use zbus::{fdo, interface};
 
-pub struct Daemon<MS: MediaService> {
+pub struct Daemon<MS: MediaService, IS: InhibitService> {
     processes: HashMap<pid_t, Process>,
     nap_backend: Arc<dyn NapBackend>,
     media_service: Arc<MS>,
+    inhibit_service: Arc<IS>,
 }
 
-impl<MS: MediaService> Daemon<MS> {
-    pub fn new(nap_backend: Arc<dyn NapBackend>, media_service: Arc<MS>) -> Self {
+impl<MS: MediaService, IS: InhibitService> Daemon<MS, IS> {
+    pub fn new(
+        nap_backend: Arc<dyn NapBackend>,
+        media_service: Arc<MS>,
+        inhibit_service: Arc<IS>,
+    ) -> Self {
         Self {
             processes: HashMap::new(),
             nap_backend,
             media_service,
+            inhibit_service,
         }
     }
 
@@ -36,6 +44,7 @@ impl<MS: MediaService> Daemon<MS> {
 
     async fn reconcile_pid(&mut self, pid: pid_t) -> fdo::Result<()> {
         let media_playing = self.is_media_playing(pid).await;
+        let inhibited = self.is_inhibiting(pid).await;
 
         let Some(process) = self.processes.get_mut(&pid) else {
             return Ok(());
@@ -53,7 +62,7 @@ impl<MS: MediaService> Daemon<MS> {
             return Ok(());
         }
 
-        if !process.is_napping && !media_playing {
+        if !process.is_napping && !media_playing && !inhibited {
             self.nap_backend
                 .send_stop(pid)
                 .map_err(|err| fdo::Error::Failed(format!("failed to SIGSTOP pid {pid}: {err}")))?;
@@ -70,6 +79,19 @@ impl<MS: MediaService> Daemon<MS> {
             .await
             .unwrap_or_default();
         playing_pids.contains(&pid)
+    }
+
+    // Don't throttle apps inhibiting idle (screen recording, streaming, video call)
+    // Who is usually desktop/flatpak id (e.g. "com.obsproject.Studio", "firefox")
+    // Luckily it's a substring of cgroup (e.g. `app-flatpak-com.obsproject.Studio-<id>.scope`)
+    async fn is_inhibiting(&self, pid: pid_t) -> bool {
+        let Ok(cgroup) = process::read_process_cgroup(pid) else {
+            return false;
+        };
+        let Ok(inhibitors) = self.inhibit_service.list_inhibitors().await else {
+            return false;
+        };
+        inhibitors.iter().any(|who| cgroup.contains(who))
     }
 
     fn cleanup_napped_pid(&self, pid: pid_t) -> fdo::Result<()> {
@@ -89,9 +111,10 @@ impl<MS: MediaService> Daemon<MS> {
 }
 
 #[interface(name = "dev.appnap.AppNap1")]
-impl<MS> Daemon<MS>
+impl<MS, IS> Daemon<MS, IS>
 where
     MS: MediaService + 'static,
+    IS: InhibitService + 'static,
 {
     async fn add_window(&mut self, window_id: &str, pid: pid_t) -> fdo::Result<()> {
         Self::validate_input(window_id, pid)?;

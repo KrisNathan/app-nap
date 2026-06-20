@@ -1,5 +1,6 @@
 mod backend;
 mod system_signal_backend;
+mod systemd_client;
 mod systemd_freeze_backend;
 mod systemd_scope_quota_backend;
 mod systemd_unit;

@@ -24,8 +24,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let conf = conf_service.get_conf()?.clone();
 
     let nap_backend: Arc<dyn NapBackend> = match conf.nap_backend_type {
-        NapBackendType::SystemdScope => Arc::new(SystemdScopeQuotaBackend),
-        NapBackendType::SystemdFreeze => Arc::new(SystemdFreezeBackend),
+        NapBackendType::SystemdScope => Arc::new(SystemdScopeQuotaBackend::new()?),
+        NapBackendType::SystemdFreeze => Arc::new(SystemdFreezeBackend::new()?),
         NapBackendType::Signal => Arc::new(SystemSignalController),
     };
 

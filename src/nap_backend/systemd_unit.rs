@@ -28,15 +28,6 @@ pub fn parse_systemd_unit(cgroup_output: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-pub fn command_failed(command: &str, code: Option<i32>, stderr: &[u8]) -> io::Error {
-    let stderr = String::from_utf8_lossy(stderr);
-    let message = match code {
-        Some(code) => format!("{command} failed with exit code {code}: {}", stderr.trim()),
-        None => format!("{command} was terminated by signal: {}", stderr.trim()),
-    };
-    io::Error::other(message)
-}
-
 #[cfg(test)]
 mod tests {
     use super::parse_systemd_unit;

@@ -1,42 +1,39 @@
-use super::{
-    NapBackend,
-    systemd_unit::{command_failed, systemd_unit_for_pid},
-};
+use super::{NapBackend, systemd_client::SystemdClient, systemd_unit::systemd_unit_for_pid};
 use libc::pid_t;
-use std::{io, process::Command};
+use std::io;
 
-#[derive(Default)]
-pub struct SystemdScopeQuotaBackend;
+// systemd exposes CPU quota over D-Bus as `CPUQuotaPerSecUSec` (u64 microseconds
+// per second), not the `CPUQuota=5%` string syntax that `systemctl set-property`
+// accepts. `systemctl` parses the percent form and converts it before sending.
+// We do the conversion ourselves: 1 second = 1_000_000 µs, so 5% = 50_000 µs.
+const CPU_QUOTA_5_PERCENT: u64 = 50_000;
+
+// systemd treats `u64::MAX` as "infinity" (no quota), matching the empty
+// `CPUQuota=` form used by `systemctl set-property` to clear the limit.
+const CPU_QUOTA_UNSET: u64 = u64::MAX;
+
+pub struct SystemdScopeQuotaBackend {
+    client: SystemdClient,
+}
+
+impl SystemdScopeQuotaBackend {
+    pub fn new() -> io::Result<Self> {
+        Ok(Self {
+            client: SystemdClient::new()?,
+        })
+    }
+}
 
 impl NapBackend for SystemdScopeQuotaBackend {
     fn send_stop(&self, pid: pid_t) -> io::Result<()> {
         let scope = systemd_unit_for_pid(pid)?;
-        set_cpu_quota(&scope, Some("5%"))
+        self.client
+            .set_property(&scope, "CPUQuotaPerSecUSec", CPU_QUOTA_5_PERCENT)
     }
 
     fn send_cont(&self, pid: pid_t) -> io::Result<()> {
         let scope = systemd_unit_for_pid(pid)?;
-        set_cpu_quota(&scope, None)
-    }
-}
-
-fn set_cpu_quota(unit: &str, quota: Option<&str>) -> io::Result<()> {
-    let property = match quota {
-        Some(quota) => format!("CPUQuota={quota}"),
-        None => "CPUQuota=".to_string(),
-    };
-
-    let output = Command::new("systemctl")
-        .args(["--user", "set-property", unit, &property])
-        .output()?;
-
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(command_failed(
-            "systemctl --user set-property",
-            output.status.code(),
-            &output.stderr,
-        ))
+        self.client
+            .set_property(&scope, "CPUQuotaPerSecUSec", CPU_QUOTA_UNSET)
     }
 }

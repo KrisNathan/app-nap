@@ -1,3 +1,5 @@
+use crate::systemd::cgroup::{get_pids_from_cgroup, get_process_cgroup};
+
 use super::NapBackend;
 use libc::{SIGCONT, SIGSTOP, pid_t};
 use std::io;
@@ -7,12 +9,29 @@ pub struct SystemSignalController;
 
 impl NapBackend for SystemSignalController {
     fn send_stop(&self, pid: pid_t) -> io::Result<()> {
-        send_signal(pid, SIGSTOP)
+        let pids = get_related_pids(pid)?;
+
+        for p in pids {
+            send_signal(p, SIGSTOP)?;
+        }
+
+        Ok(())
     }
 
     fn send_cont(&self, pid: pid_t) -> io::Result<()> {
-        send_signal(pid, SIGCONT)
+        let pids = get_related_pids(pid)?;
+
+        for p in pids {
+            send_signal(p, SIGCONT)?;
+        }
+
+        Ok(())
     }
+}
+
+fn get_related_pids(pid: pid_t) -> io::Result<Vec<pid_t>> {
+    let cgroup = get_process_cgroup(pid)?;
+    get_pids_from_cgroup(cgroup)
 }
 
 fn send_signal(pid: pid_t, signal: i32) -> io::Result<()> {

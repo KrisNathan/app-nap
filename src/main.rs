@@ -3,6 +3,7 @@ mod daemon;
 mod inhibit_service;
 mod media_service;
 mod nap_backend;
+mod systemd;
 
 use std::{error::Error, future::pending, sync::Arc};
 
@@ -33,7 +34,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let media_service = MprisMediaService::new().await?;
     let inhibit_service = KdeInhibitService::new().await?;
-    let daemon = Daemon::new(nap_backend, Arc::new(media_service), Arc::new(inhibit_service));
+    let daemon = Daemon::new(
+        nap_backend,
+        Arc::new(media_service),
+        Arc::new(inhibit_service),
+    );
     let _conn = connection::Builder::session()?
         .name("dev.appnap.AppNap")?
         .serve_at("/dev/appnap/AppNap", daemon)?

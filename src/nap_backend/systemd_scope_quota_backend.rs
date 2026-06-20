@@ -1,4 +1,5 @@
-use super::{NapBackend, systemd_client::SystemdClient, systemd_unit::systemd_unit_for_pid};
+use super::{NapBackend, systemd_client::SystemdClient};
+use crate::systemd::unit::systemd_unit_for_pid;
 use libc::pid_t;
 use std::io;
 

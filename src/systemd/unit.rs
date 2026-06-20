@@ -1,24 +1,7 @@
 use libc::pid_t;
-use std::{fs, io};
+use std::io;
 
-pub fn systemd_unit_for_pid(pid: pid_t) -> io::Result<String> {
-    if pid <= 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "pid must be > 0",
-        ));
-    }
-
-    let path = format!("/proc/{pid}/cgroup");
-    let output = fs::read_to_string(path)?;
-
-    parse_systemd_unit(&output).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("no systemd scope or service found for pid {pid}"),
-        )
-    })
-}
+use super::cgroup::get_process_cgroup;
 
 pub fn parse_systemd_unit(cgroup_output: &str) -> Option<String> {
     cgroup_output
@@ -26,6 +9,17 @@ pub fn parse_systemd_unit(cgroup_output: &str) -> Option<String> {
         .flat_map(|line| line.trim().rsplit('/'))
         .find(|segment| segment.ends_with(".scope") || segment.ends_with(".service"))
         .map(ToOwned::to_owned)
+}
+
+pub fn systemd_unit_for_pid(pid: pid_t) -> io::Result<String> {
+    let output = get_process_cgroup(pid)?;
+
+    parse_systemd_unit(&output).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("no systemd scope or service found for pid {pid}"),
+        )
+    })
 }
 
 #[cfg(test)]

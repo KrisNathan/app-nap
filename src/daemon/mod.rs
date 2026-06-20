@@ -4,6 +4,7 @@ pub use process::{Process, WindowState};
 
 use crate::{
     inhibit_service::InhibitService, media_service::MediaService, nap_backend::NapBackend,
+    systemd::cgroup,
 };
 use libc::pid_t;
 use std::{collections::HashMap, io, sync::Arc};
@@ -85,7 +86,7 @@ impl<MS: MediaService, IS: InhibitService> Daemon<MS, IS> {
     // Who is usually desktop/flatpak id (e.g. "com.obsproject.Studio", "firefox")
     // Luckily it's a substring of cgroup (e.g. `app-flatpak-com.obsproject.Studio-<id>.scope`)
     async fn is_inhibiting(&self, pid: pid_t) -> bool {
-        let Ok(cgroup) = process::read_process_cgroup(pid) else {
+        let Ok(cgroup) = cgroup::get_process_cgroup(pid) else {
             return false;
         };
         let Ok(inhibitors) = self.inhibit_service.list_inhibitors().await else {

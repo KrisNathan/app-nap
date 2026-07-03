@@ -21,6 +21,15 @@ pub(crate) fn is_app_scope_cgroup(trimmed_cgroup: &str) -> bool {
         && trimmed_cgroup.contains("/app.slice/")
 }
 
+/// Resolve every PID sharing the cgroup of `pid`.
+///
+/// Reads `/proc/<pid>/cgroup` and enumerates `cgroup.procs` for that cgroup.
+/// Only "app" cgroups are accepted (see `get_pids_from_cgroup`).
+pub fn get_related_pids(pid: pid_t) -> io::Result<Vec<pid_t>> {
+    let cgroup = get_process_cgroup(pid)?;
+    get_pids_from_cgroup(cgroup)
+}
+
 /// Get PIDs in a cgroup.
 /// ONLY for "app" cgroup.
 pub fn get_pids_from_cgroup(cgroup: String) -> io::Result<Vec<pid_t>> {

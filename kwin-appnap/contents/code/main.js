@@ -18,12 +18,18 @@ function isTrackable(window) {
   debug(`
     window: id=${window.internalId.toString()} pid=${window.pid}
     specialWindow=${window.specialWindow} popupWindow=${window.popupWindow}
+    normalWindow=${window.normalWindow}
+    skipTaskbar=${window.skipTaskbar} skipPager=${window.skipPager} skipSwitcher=${window.skipSwitcher}
     usablePid=${isPidUsable(window)}
   `);
   return (
     !!window &&
     !window.specialWindow &&
     !window.popupWindow &&
+    window.normalWindow &&
+    !window.skipTaskbar &&
+    !window.skipPager &&
+    !window.skipSwitcher &&
     isPidUsable(window)
   );
 }
@@ -31,8 +37,9 @@ function isTrackable(window) {
 // MAIN
 function main() {
   debug("INIT");
+  debug("AMOGUS2");
 
-  workspace.windowAdded.connect(function (window) {
+  workspace.windowAdded.connect(function(window) {
     if (!isTrackable(window)) {
       return;
     }
@@ -42,7 +49,7 @@ function main() {
 
     callDBus(SERVICE, PATH, IFACE, "AddWindow", id, pid);
 
-    window.minimizedChanged.connect(function () {
+    window.minimizedChanged.connect(function() {
       const minimized = window.minimized;
       debug(
         `window minimized changed: id=${id} pid=${pid} minimized=${minimized}`,
@@ -52,7 +59,7 @@ function main() {
   });
   // if proc is minimized, frozen
   // this signal will be emitted only when the window is unminimized first
-  workspace.windowRemoved.connect(function (window) {
+  workspace.windowRemoved.connect(function(window) {
     if (!isTrackable(window)) {
       return;
     }
@@ -61,6 +68,11 @@ function main() {
     debug(`window removed: id=${id} pid=${pid}`);
     callDBus(SERVICE, PATH, IFACE, "RemoveWindow", id, pid);
   });
+
+  // I'm currently planning for implementing "load all existing window on init so that all windows are tracked"
+  for (let w of workspace.windowList()) {
+    debug(`INIT: ${w.resourceName} ${w.internalId.toString()} isTrackable: ${isTrackable(w)}`)
+  }
 }
 
 main();

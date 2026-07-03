@@ -37,7 +37,6 @@ function isTrackable(window) {
 // MAIN
 function main() {
   debug("INIT");
-  debug("AMOGUS2");
 
   workspace.windowAdded.connect(function(window) {
     if (!isTrackable(window)) {
@@ -69,10 +68,6 @@ function main() {
     callDBus(SERVICE, PATH, IFACE, "RemoveWindow", id, pid);
   });
 
-  // I'm currently planning for implementing "load all existing window on init so that all windows are tracked"
-  for (let w of workspace.windowList()) {
-    debug(`INIT: ${w.resourceName} ${w.internalId.toString()} isTrackable: ${isTrackable(w)}`)
-  }
 }
 
 main();

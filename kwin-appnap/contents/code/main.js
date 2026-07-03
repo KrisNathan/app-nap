@@ -5,7 +5,7 @@ const IFACE = "dev.appnap.AppNap1";
 
 // HELPERS
 function debug(message) {
-  console.warn(`[app-nap] ${message}`);
+  console.info(`[app-nap] ${message}`);
 }
 
 // UTILS

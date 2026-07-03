@@ -6,6 +6,7 @@ pub enum NapBackendType {
     Signal,
     SystemdFreeze,
     SystemdScope,
+    ECore,
 }
 
 impl NapBackendType {
@@ -14,6 +15,7 @@ impl NapBackendType {
             Self::Signal => "signal",
             Self::SystemdFreeze => "systemd-freeze",
             Self::SystemdScope => "systemd-scope",
+            Self::ECore => "ecore",
         }
     }
 }
@@ -32,6 +34,7 @@ impl FromStr for NapBackendType {
             "signal" => Ok(Self::Signal),
             "systemd-freeze" => Ok(Self::SystemdFreeze),
             "systemd-scope" => Ok(Self::SystemdScope),
+            "ecore" => Ok(Self::ECore),
             _ => Err(format!("unknown nap backend type: {value}")),
         }
     }

@@ -5,7 +5,7 @@ use std::{fmt, str::FromStr};
 pub enum NapBackendType {
     Signal,
     SystemdFreeze,
-    SystemdScope,
+    SystemdCPUQuota,
     ECore,
 }
 
@@ -14,7 +14,7 @@ impl NapBackendType {
         match self {
             Self::Signal => "signal",
             Self::SystemdFreeze => "systemd-freeze",
-            Self::SystemdScope => "systemd-scope",
+            Self::SystemdCPUQuota => "systemd-cpu-quota",
             Self::ECore => "ecore",
         }
     }
@@ -33,7 +33,7 @@ impl FromStr for NapBackendType {
         match value {
             "signal" => Ok(Self::Signal),
             "systemd-freeze" => Ok(Self::SystemdFreeze),
-            "systemd-scope" => Ok(Self::SystemdScope),
+            "systemd-cpu-quota" => Ok(Self::SystemdCPUQuota),
             "ecore" => Ok(Self::ECore),
             _ => Err(format!("unknown nap backend type: {value}")),
         }

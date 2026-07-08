@@ -13,11 +13,11 @@ const CPU_QUOTA_5_PERCENT: u64 = 50_000;
 // `CPUQuota=` form used by `systemctl set-property` to clear the limit.
 const CPU_QUOTA_UNSET: u64 = u64::MAX;
 
-pub struct SystemdScopeQuotaBackend {
+pub struct SystemdCPUQuotaBackend {
     client: SystemdClient,
 }
 
-impl SystemdScopeQuotaBackend {
+impl SystemdCPUQuotaBackend {
     pub fn new() -> io::Result<Self> {
         Ok(Self {
             client: SystemdClient::new()?,
@@ -25,7 +25,7 @@ impl SystemdScopeQuotaBackend {
     }
 }
 
-impl NapBackend for SystemdScopeQuotaBackend {
+impl NapBackend for SystemdCPUQuotaBackend {
     fn send_stop(&self, pid: pid_t) -> io::Result<()> {
         let scope = systemd_unit_for_pid(pid)?;
         self.client

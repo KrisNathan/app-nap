@@ -1,1 +1,1 @@
-nap_backend_type = "systemd-scope"
+nap_backend_type = "systemd-cpu-quota"

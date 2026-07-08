@@ -15,7 +15,7 @@
   - `signal`: send `SIGSTOP` to freeze the process, then `SIGCONT` to resume
     it. Caveat: a minimized window usually has to be unminimized before it can
     be closed.
-  - `systemd-scope`: find the app's user scope or service and set a low (5%)
+  - `systemd-cpu-quota`: find the app's user scope or service and set a low (5%)
     `CPUQuota` while it is napping, then clear the quota to resume.
   - `systemd-freeze`: find the app's user scope or service and freeze/thaw the
     unit with `systemctl freeze`/`systemctl thaw`. This suspends the whole unit
@@ -77,7 +77,7 @@ ps -o pid,stat,cmd -p <PID>
 When the window is minimized, the process should move to stopped state (`T` in
 `ps` output) only when using the `signal` backend. With the `systemd-freeze`
 backend, check the unit status with `systemctl --user status <unit>`; with the
-`systemd-scope` backend, the process stays runnable but is CPU-throttled.
+`systemd-cpu-quota` backend, the process stays runnable but is CPU-throttled.
 
 ## Direct Daemon Smoke Test
 

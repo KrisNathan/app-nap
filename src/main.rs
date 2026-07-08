@@ -16,8 +16,8 @@ use crate::{
     inhibit_service::KdeInhibitService,
     media_service::MprisMediaService,
     nap_backend::{
-        ECoreBackend, NapBackend, SystemSignalController, SystemdFreezeBackend,
-        SystemdScopeQuotaBackend,
+        ECoreBackend, NapBackend, SystemSignalController, SystemdCPUQuotaBackend,
+        SystemdFreezeBackend,
     },
 };
 
@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let conf = conf_service.get_conf()?.clone();
 
     let nap_backend: Arc<dyn NapBackend> = match conf.nap_backend_type {
-        NapBackendType::SystemdScope => Arc::new(SystemdScopeQuotaBackend::new()?),
+        NapBackendType::SystemdCPUQuota => Arc::new(SystemdCPUQuotaBackend::new()?),
         NapBackendType::SystemdFreeze => Arc::new(SystemdFreezeBackend::new()?),
         NapBackendType::Signal => Arc::new(SystemSignalController),
         NapBackendType::ECore => Arc::new(ECoreBackend::new()?),

@@ -58,7 +58,7 @@ mod tests {
     fn load_maps_nap_backend_type_from_string() {
         let config_path =
             std::env::temp_dir().join(format!("app-nap-conf-test-{}.toml", std::process::id()));
-        fs::write(&config_path, r#"nap_backend_type = "systemd-scope""#).unwrap();
+        fs::write(&config_path, r#"nap_backend_type = "systemd-cpu-quota""#).unwrap();
 
         let mut service = TomlConfService {
             config_path: config_path.clone(),
@@ -70,7 +70,7 @@ mod tests {
 
         assert_eq!(
             service.get_conf().unwrap().nap_backend_type,
-            NapBackendType::SystemdScope
+            NapBackendType::SystemdCPUQuota
         );
 
         fs::remove_file(config_path).unwrap();

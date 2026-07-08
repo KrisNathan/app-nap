@@ -3,6 +3,7 @@ use std::collections::HashMap;
 #[derive(Clone, Copy, Debug)]
 pub struct WindowState {
     pub minimized: bool,
+    pub active: bool,
 }
 
 #[derive(Debug)]

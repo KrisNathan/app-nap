@@ -124,7 +124,10 @@ where
         process
             .windows
             .entry(window_id.to_string())
-            .or_insert(WindowState { minimized: false });
+            .or_insert(WindowState {
+                minimized: false,
+                active: true,
+            });
 
         self.reconcile_pid(pid).await
     }
@@ -165,6 +168,26 @@ where
         })?;
 
         window.minimized = minimized;
+        self.reconcile_pid(pid).await
+    }
+
+    async fn active_changed(
+        &mut self,
+        window_id: &str,
+        pid: pid_t,
+        active: bool,
+    ) -> fdo::Result<()> {
+        Self::validate_input(window_id, pid)?;
+
+        let process = self
+            .processes
+            .get_mut(&pid)
+            .ok_or_else(|| fdo::Error::Failed(format!("unknown pid {pid}")))?;
+        let window = process.windows.get_mut(window_id).ok_or_else(|| {
+            fdo::Error::Failed(format!("unknown window {window_id} for pid {pid}"))
+        })?;
+
+        window.active = active;
         self.reconcile_pid(pid).await
     }
 }

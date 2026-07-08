@@ -16,11 +16,12 @@ function isPidUsable(window) {
 
 function isTrackable(window) {
   debug(`
-    window: id=${window.internalId.toString()} pid=${window.pid}
-    specialWindow=${window.specialWindow} popupWindow=${window.popupWindow}
-    normalWindow=${window.normalWindow}
-    skipTaskbar=${window.skipTaskbar} skipPager=${window.skipPager} skipSwitcher=${window.skipSwitcher}
-    usablePid=${isPidUsable(window)}
+    isTrackable():
+      window: id=${window.internalId.toString()} pid=${window.pid}
+      specialWindow=${window.specialWindow} popupWindow=${window.popupWindow}
+      normalWindow=${window.normalWindow}
+      skipTaskbar=${window.skipTaskbar} skipPager=${window.skipPager} skipSwitcher=${window.skipSwitcher}
+      usablePid=${isPidUsable(window)}
   `);
   return (
     !!window &&
@@ -54,6 +55,12 @@ function main() {
         `window minimized changed: id=${id} pid=${pid} minimized=${minimized}`,
       );
       callDBus(SERVICE, PATH, IFACE, "MinimizedChanged", id, pid, minimized);
+    });
+
+    window.activeChanged.connect(function() {
+      const active = window.active;
+      debug(`window active changed: id=${id} active=${active}`);
+      callDBus(SERVICE, PATH, IFACE, "ActiveChanged", id, pid, active);
     });
   });
   // if proc is minimized, frozen

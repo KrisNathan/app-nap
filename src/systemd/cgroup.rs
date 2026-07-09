@@ -6,8 +6,8 @@ pub fn get_process_cgroup(pid: pid_t) -> io::Result<String> {
     Ok(cgroup)
 }
 
-fn trim_hierarchy_id(cgroup: String) -> String {
-    cgroup.trim().split(':').next_back().unwrap_or("").into()
+pub fn trim_hierarchy_id(cgroup: &str) -> &str {
+    cgroup.trim().split(':').next_back().unwrap_or("")
 }
 
 /// It is an "app" cgroup if:
@@ -33,9 +33,9 @@ pub fn get_related_pids(pid: pid_t) -> io::Result<Vec<pid_t>> {
 /// Get PIDs in a cgroup.
 /// ONLY for "app" cgroup.
 pub fn get_pids_from_cgroup(cgroup: String) -> io::Result<Vec<pid_t>> {
-    let trimmed_cgroup = trim_hierarchy_id(cgroup);
+    let trimmed_cgroup = trim_hierarchy_id(&cgroup);
 
-    if !is_app_scope_cgroup(&trimmed_cgroup) {
+    if !is_app_scope_cgroup(trimmed_cgroup) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("refusing to enumerate non-app cgroup: {trimmed_cgroup}"),
@@ -74,7 +74,7 @@ mod tests {
     fn trims_hierarchy_id() {
         let cgroup = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-com.brave.Browser-1760258369.scope\n";
         assert_eq!(
-            trim_hierarchy_id(cgroup.into()),
+            trim_hierarchy_id(cgroup),
             "/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-com.brave.Browser-1760258369.scope"
         );
     }

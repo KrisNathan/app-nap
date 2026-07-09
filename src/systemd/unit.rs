@@ -1,18 +1,14 @@
 use libc::pid_t;
 use std::io;
 
-use super::cgroup::{get_process_cgroup, is_app_scope_cgroup};
+use super::cgroup::{get_process_cgroup, is_app_scope_cgroup, trim_hierarchy_id};
 
 pub fn parse_systemd_unit(cgroup_output: &str) -> Option<String> {
-    let trimmed = cgroup_output.trim().split(':').next_back().unwrap_or("");
-    if !is_app_scope_cgroup(trimmed) {
+    let path = trim_hierarchy_id(cgroup_output);
+    if !is_app_scope_cgroup(path) {
         return None;
     }
-    cgroup_output
-        .lines()
-        .flat_map(|line| line.trim().rsplit('/'))
-        .find(|segment| segment.ends_with(".scope") || segment.ends_with(".service"))
-        .map(ToOwned::to_owned)
+    path.rsplit('/').next().map(ToOwned::to_owned)
 }
 
 pub fn systemd_unit_for_pid(pid: pid_t) -> io::Result<String> {

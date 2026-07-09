@@ -1,5 +1,5 @@
 use super::{NapBackend, systemd_client::SystemdClient};
-use crate::systemd::unit::systemd_unit_for_pid;
+use crate::systemd::unit::systemd_units_for_pid_tree;
 use libc::pid_t;
 use std::io;
 
@@ -17,12 +17,16 @@ impl SystemdFreezeBackend {
 
 impl NapBackend for SystemdFreezeBackend {
     fn send_stop(&self, pid: pid_t) -> io::Result<()> {
-        let unit = systemd_unit_for_pid(pid)?;
-        self.client.freeze(&unit)
+        for unit in systemd_units_for_pid_tree(pid)? {
+            self.client.freeze(&unit)?;
+        }
+        Ok(())
     }
 
     fn send_cont(&self, pid: pid_t) -> io::Result<()> {
-        let unit = systemd_unit_for_pid(pid)?;
-        self.client.thaw(&unit)
+        for unit in systemd_units_for_pid_tree(pid)? {
+            self.client.thaw(&unit)?;
+        }
+        Ok(())
     }
 }

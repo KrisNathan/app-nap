@@ -1,5 +1,5 @@
 use super::{NapBackend, systemd_client::SystemdClient};
-use crate::systemd::unit::systemd_unit_for_pid;
+use crate::systemd::unit::systemd_units_for_pid_tree;
 use libc::pid_t;
 use std::io;
 
@@ -23,18 +23,22 @@ impl SystemdCPUQuotaBackend {
             client: SystemdClient::new()?,
         })
     }
+
+    fn set_cpu_quota(&self, pid: pid_t, quota: u64) -> io::Result<()> {
+        for unit in systemd_units_for_pid_tree(pid)? {
+            self.client
+                .set_property(&unit, "CPUQuotaPerSecUSec", quota)?;
+        }
+        Ok(())
+    }
 }
 
 impl NapBackend for SystemdCPUQuotaBackend {
     fn send_stop(&self, pid: pid_t) -> io::Result<()> {
-        let scope = systemd_unit_for_pid(pid)?;
-        self.client
-            .set_property(&scope, "CPUQuotaPerSecUSec", CPU_QUOTA_5_PERCENT)
+        self.set_cpu_quota(pid, CPU_QUOTA_5_PERCENT)
     }
 
     fn send_cont(&self, pid: pid_t) -> io::Result<()> {
-        let scope = systemd_unit_for_pid(pid)?;
-        self.client
-            .set_property(&scope, "CPUQuotaPerSecUSec", CPU_QUOTA_UNSET)
+        self.set_cpu_quota(pid, CPU_QUOTA_UNSET)
     }
 }

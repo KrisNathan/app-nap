@@ -1,6 +1,8 @@
 use libc::pid_t;
 use std::{fs, io};
 
+use super::proc::ancestor_pids_until_systemd;
+
 pub fn get_process_cgroup(pid: pid_t) -> io::Result<String> {
     let cgroup = fs::read_to_string(format!("/proc/{pid}/cgroup"))?;
     Ok(cgroup)
@@ -21,13 +23,43 @@ pub(crate) fn is_app_scope_cgroup(trimmed_cgroup: &str) -> bool {
         && trimmed_cgroup.contains("/app.slice/")
 }
 
-/// Resolve every PID sharing the cgroup of `pid`.
+/// Resolve every PID in the app units of `pid`'s process tree.
 ///
-/// Reads `/proc/<pid>/cgroup` and enumerates `cgroup.procs` for that cgroup.
-/// Only "app" cgroups are accepted (see `get_pids_from_cgroup`).
+/// Walks ancestors until systemd and unions `cgroup.procs` from each distinct
+/// app cgroup. Covers Chromium-style splits where the window pid and its
+/// children live in different units.
 pub fn get_related_pids(pid: pid_t) -> io::Result<Vec<pid_t>> {
-    let cgroup = get_process_cgroup(pid)?;
-    get_pids_from_cgroup(cgroup)
+    let mut related = Vec::new();
+    let mut seen_cgroups = Vec::new();
+
+    for ancestor in ancestor_pids_until_systemd(pid)? {
+        let Ok(cgroup) = get_process_cgroup(ancestor) else {
+            continue;
+        };
+        let trimmed = trim_hierarchy_id(&cgroup).to_owned();
+        if !is_app_scope_cgroup(&trimmed) || seen_cgroups.iter().any(|seen| seen == &trimmed) {
+            continue;
+        }
+        seen_cgroups.push(trimmed);
+
+        let Ok(pids) = get_pids_from_cgroup(cgroup) else {
+            continue;
+        };
+        for p in pids {
+            if !related.contains(&p) {
+                related.push(p);
+            }
+        }
+    }
+
+    if related.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("no related app pids found for pid tree of {pid}"),
+        ));
+    }
+
+    Ok(related)
 }
 
 /// Get PIDs in a cgroup.

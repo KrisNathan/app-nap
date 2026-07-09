@@ -54,12 +54,14 @@ impl<MS: MediaService, IS: InhibitService> Daemon<MS, IS> {
             return Ok(());
         };
 
+        println!("{process:?}");
+
         let has_active_window = process.windows.values().any(|window| window.active);
         let has_unminimized_window = process.windows.values().any(|window| !window.minimized);
         let keep_awake = media_playing || inhibited;
 
         // Unfocused tier: lower CPUWeight unless focused or hard keep-awake.
-        if has_active_window || keep_awake {
+        if has_active_window {
             self.inactive_backend.send_cont(pid).map_err(|err| {
                 fdo::Error::Failed(format!(
                     "failed to set state to active for pid {pid}: {err}"
@@ -118,11 +120,7 @@ impl<MS: MediaService, IS: InhibitService> Daemon<MS, IS> {
         Ok(())
     }
 
-    fn cleanup_backend(
-        pid: pid_t,
-        backend: &Arc<dyn NapBackend>,
-        label: &str,
-    ) -> fdo::Result<()> {
+    fn cleanup_backend(pid: pid_t, backend: &Arc<dyn NapBackend>, label: &str) -> fdo::Result<()> {
         match backend.send_cont(pid) {
             Ok(()) => Ok(()),
             Err(_) if Self::is_process_gone(pid) => Ok(()),

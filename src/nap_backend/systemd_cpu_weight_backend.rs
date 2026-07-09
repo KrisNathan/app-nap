@@ -2,7 +2,7 @@ use libc::pid_t;
 
 use crate::{
     nap_backend::{NapBackend, systemd_client::SystemdClient},
-    systemd::unit::systemd_unit_for_pid,
+    systemd::unit::systemd_units_for_pid_tree,
 };
 use std::{io, sync::Arc};
 
@@ -16,18 +16,22 @@ impl SystemdCpuWeightBackend {
     pub fn new(client: Arc<SystemdClient>) -> Self {
         Self { client }
     }
+
+    fn set_cpu_weight(&self, pid: pid_t, weight: u64) -> io::Result<()> {
+        for unit in systemd_units_for_pid_tree(pid)? {
+            println!("{unit} CPUWeight = {weight}");
+            self.client.set_property(&unit, "CPUWeight", weight)?;
+        }
+        Ok(())
+    }
 }
 
 impl NapBackend for SystemdCpuWeightBackend {
     fn send_stop(&self, pid: pid_t) -> io::Result<()> {
-        let scope = systemd_unit_for_pid(pid)?;
-        self.client
-            .set_property(&scope, "CPUWeight", CPU_WEIGHT_UNFOCUSED)
+        self.set_cpu_weight(pid, CPU_WEIGHT_UNFOCUSED)
     }
 
     fn send_cont(&self, pid: pid_t) -> io::Result<()> {
-        let scope = systemd_unit_for_pid(pid)?;
-        self.client
-            .set_property(&scope, "CPUWeight", CPU_WEIGHT_DEFAULT)
+        self.set_cpu_weight(pid, CPU_WEIGHT_DEFAULT)
     }
 }

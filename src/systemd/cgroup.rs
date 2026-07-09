@@ -7,7 +7,7 @@ pub fn get_process_cgroup(pid: pid_t) -> io::Result<String> {
 }
 
 fn trim_hierarchy_id(cgroup: String) -> String {
-    cgroup.trim().split(':').last().unwrap_or("").into()
+    cgroup.trim().split(':').next_back().unwrap_or("").into()
 }
 
 /// It is an "app" cgroup if:

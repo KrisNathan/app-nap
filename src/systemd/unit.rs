@@ -4,7 +4,7 @@ use std::io;
 use super::cgroup::{get_process_cgroup, is_app_scope_cgroup};
 
 pub fn parse_systemd_unit(cgroup_output: &str) -> Option<String> {
-    let trimmed = cgroup_output.trim().split(':').last().unwrap_or("");
+    let trimmed = cgroup_output.trim().split(':').next_back().unwrap_or("");
     if !is_app_scope_cgroup(trimmed) {
         return None;
     }

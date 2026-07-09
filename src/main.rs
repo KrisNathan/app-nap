@@ -16,8 +16,8 @@ use crate::{
     inhibit_service::KdeInhibitService,
     media_service::MprisMediaService,
     nap_backend::{
-        ECoreBackend, NapBackend, SystemSignalController, SystemdCPUQuotaBackend,
-        SystemdFreezeBackend,
+        ECoreBackend, NapBackend, SystemSignalController, SystemdCPUQuotaBackend, SystemdClient,
+        SystemdCpuWeightBackend, SystemdFreezeBackend,
     },
 };
 
@@ -26,6 +26,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut conf_service = TomlConfService::new();
     conf_service.load()?;
     let conf = conf_service.get_conf()?.clone();
+
+    let systemd_client = Arc::new(SystemdClient::new()?);
+
+    let inactive_backend: Arc<dyn NapBackend> =
+        Arc::new(SystemdCpuWeightBackend::new(systemd_client));
 
     let nap_backend: Arc<dyn NapBackend> = match conf.nap_backend_type {
         NapBackendType::SystemdCPUQuota => Arc::new(SystemdCPUQuotaBackend::new()?),
@@ -37,6 +42,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let media_service = MprisMediaService::new().await?;
     let inhibit_service = KdeInhibitService::new().await?;
     let daemon = Daemon::new(
+        inactive_backend,
         nap_backend,
         Arc::new(media_service),
         Arc::new(inhibit_service),

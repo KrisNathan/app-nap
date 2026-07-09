@@ -12,6 +12,7 @@ use zbus::{fdo, interface};
 
 pub struct Daemon<MS: MediaService, IS: InhibitService> {
     processes: HashMap<pid_t, Process>,
+    inactive_backend: Arc<dyn NapBackend>,
     nap_backend: Arc<dyn NapBackend>,
     media_service: Arc<MS>,
     inhibit_service: Arc<IS>,
@@ -19,12 +20,14 @@ pub struct Daemon<MS: MediaService, IS: InhibitService> {
 
 impl<MS: MediaService, IS: InhibitService> Daemon<MS, IS> {
     pub fn new(
+        inactive_backend: Arc<dyn NapBackend>,
         nap_backend: Arc<dyn NapBackend>,
         media_service: Arc<MS>,
         inhibit_service: Arc<IS>,
     ) -> Self {
         Self {
             processes: HashMap::new(),
+            inactive_backend,
             nap_backend,
             media_service,
             inhibit_service,
@@ -51,25 +54,37 @@ impl<MS: MediaService, IS: InhibitService> Daemon<MS, IS> {
             return Ok(());
         };
 
-        let has_active_window = process.windows.values().any(|window| !window.minimized);
+        let has_active_window = process.windows.values().any(|window| window.active);
+        let has_unminimized_window = process.windows.values().any(|window| !window.minimized);
+        let keep_awake = media_playing || inhibited;
 
-        if has_active_window {
-            if process.is_napping {
-                self.nap_backend.send_cont(pid).map_err(|err| {
-                    fdo::Error::Failed(format!("failed to SIGCONT pid {pid}: {err}"))
-                })?;
-                process.is_napping = false;
-            }
-            return Ok(());
+        // Unfocused tier: lower CPUWeight unless focused or hard keep-awake.
+        if has_active_window || keep_awake {
+            self.inactive_backend.send_cont(pid).map_err(|err| {
+                fdo::Error::Failed(format!(
+                    "failed to set state to active for pid {pid}: {err}"
+                ))
+            })?;
+        } else {
+            self.inactive_backend.send_stop(pid).map_err(|err| {
+                fdo::Error::Failed(format!(
+                    "failed to set state to inactive for pid {pid}: {err}"
+                ))
+            })?;
         }
 
-        if !process.is_napping && !media_playing && !inhibited {
+        // Minimized tier: hard nap only when every window is minimized.
+        if process.is_napping && (has_unminimized_window || keep_awake) {
+            self.nap_backend
+                .send_cont(pid)
+                .map_err(|err| fdo::Error::Failed(format!("failed to SIGCONT pid {pid}: {err}")))?;
+            process.is_napping = false;
+        } else if !has_unminimized_window && !process.is_napping && !keep_awake {
             self.nap_backend
                 .send_stop(pid)
                 .map_err(|err| fdo::Error::Failed(format!("failed to SIGSTOP pid {pid}: {err}")))?;
             process.is_napping = true;
         }
-
         Ok(())
     }
 
@@ -95,12 +110,24 @@ impl<MS: MediaService, IS: InhibitService> Daemon<MS, IS> {
         inhibitors.iter().any(|who| cgroup.contains(who))
     }
 
-    fn cleanup_napped_pid(&self, pid: pid_t) -> fdo::Result<()> {
-        match self.nap_backend.send_cont(pid) {
+    fn cleanup_pid(&self, pid: pid_t, was_napping: bool) -> fdo::Result<()> {
+        Self::cleanup_backend(pid, &self.inactive_backend, "inactive")?;
+        if was_napping {
+            Self::cleanup_backend(pid, &self.nap_backend, "nap")?;
+        }
+        Ok(())
+    }
+
+    fn cleanup_backend(
+        pid: pid_t,
+        backend: &Arc<dyn NapBackend>,
+        label: &str,
+    ) -> fdo::Result<()> {
+        match backend.send_cont(pid) {
             Ok(()) => Ok(()),
             Err(_) if Self::is_process_gone(pid) => Ok(()),
             Err(err) => Err(fdo::Error::Failed(format!(
-                "failed to cleanup napped pid {pid}: {err}"
+                "failed to cleanup {label} state for pid {pid}: {err}"
             ))),
         }
     }
@@ -139,10 +166,8 @@ where
             process.windows.remove(window_id);
 
             if process.windows.is_empty() {
-                if process.is_napping {
-                    self.cleanup_napped_pid(pid)?;
-                }
-
+                let was_napping = process.is_napping;
+                self.cleanup_pid(pid, was_napping)?;
                 self.processes.remove(&pid);
                 return Ok(());
             }

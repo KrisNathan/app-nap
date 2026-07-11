@@ -60,6 +60,10 @@ mod tests {
         let pid = unsafe { libc::getpid() };
         let ancestors = ancestor_pids_until_systemd(pid).unwrap();
         assert_eq!(ancestors.first().copied(), Some(pid));
-        assert!(ancestors.iter().all(|&p| process_comm(p).unwrap() != "systemd"));
+        assert!(
+            ancestors
+                .iter()
+                .all(|&p| process_comm(p).unwrap() != "systemd")
+        );
     }
 }

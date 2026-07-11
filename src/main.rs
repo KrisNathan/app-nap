@@ -1,4 +1,5 @@
 mod conf_service;
+mod config;
 mod daemon;
 mod inhibit_service;
 mod media_service;

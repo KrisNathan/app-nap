@@ -1,1 +1,15 @@
-nap_backend_type = "systemd-cpu-quota"
+[tiers.performance]
+actions = [
+  { type = "systemd-cpu-weight", weight = 100 },
+]
+
+[tiers.background]
+actions = [
+  { type = "systemd-cpu-weight", weight = 1 },
+]
+
+[tiers.nap]
+actions = [
+  { type = "systemd-cpu-quota", percent = 10 },
+  { type = "ecore" },
+]

@@ -1,10 +1,9 @@
 use super::NapBackend;
 use crate::systemd::cgroup::get_related_pids;
-use libc::pid_t;
-use nix::sched::{CpuSet, sched_setaffinity};
-use nix::unistd::Pid;
+use libc::{self, cpu_set_t, pid_t};
 use std::fs;
 use std::io;
+use std::mem;
 
 /// Nap backend that pushes napped apps onto the CPU's efficiency cores
 /// (E-cores) and restores them to all cores on resume.
@@ -20,8 +19,8 @@ use std::io;
 /// whole cgroup matches the `SystemSignalController` behavior so child
 /// processes are throttled too.
 pub struct ECoreBackend {
-    ecores: CpuSet,
-    allcores: CpuSet,
+    ecores: cpu_set_t,
+    allcores: cpu_set_t,
 }
 
 impl ECoreBackend {
@@ -44,16 +43,16 @@ impl NapBackend for ECoreBackend {
 }
 
 impl ECoreBackend {
-    fn set_affinity_for_cgroup(&self, pid: pid_t, cpuset: &CpuSet) -> io::Result<()> {
+    fn set_affinity_for_cgroup(&self, pid: pid_t, cpuset: &cpu_set_t) -> io::Result<()> {
         let pids = get_related_pids(pid)?;
 
         for p in pids {
             // A pid may have exited between enumeration and the syscall; treat
             // ESRCH as success so a racing exit doesn't fail the whole nap.
-            if let Err(err) = sched_setaffinity(Pid::from_raw(p), cpuset)
-                && err != nix::errno::Errno::ESRCH
-            {
-                return Err(err.into());
+            match set_affinity(p, cpuset) {
+                Ok(()) => {}
+                Err(err) if err.raw_os_error() == Some(libc::ESRCH) => {}
+                Err(err) => return Err(err),
             }
         }
 
@@ -61,9 +60,56 @@ impl ECoreBackend {
     }
 }
 
-/// Parse a kernel CPU-list string (e.g. `"0-3,8-11,15"`) into a `CpuSet`.
-fn parse_cpu_list(raw: &str) -> io::Result<CpuSet> {
-    let mut cpuset = CpuSet::new();
+fn set_affinity(pid: pid_t, cpuset: &cpu_set_t) -> io::Result<()> {
+    // SAFETY: `cpuset` is a fully initialized cpu_set_t; pid is a process id we
+    // enumerated from the cgroup.
+    let rc = unsafe { libc::sched_setaffinity(pid, mem::size_of_val(cpuset), cpuset) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+fn empty_cpuset() -> cpu_set_t {
+    unsafe {
+        let mut set = mem::zeroed();
+        libc::CPU_ZERO(&mut set);
+        set
+    }
+}
+
+fn cpu_count() -> usize {
+    mem::size_of::<cpu_set_t>() * 8
+}
+
+fn cpu_set(cpu: usize, cpuset: &mut cpu_set_t) -> io::Result<()> {
+    if cpu >= cpu_count() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("cpu id {cpu} exceeds cpu_set_t capacity"),
+        ));
+    }
+    unsafe {
+        libc::CPU_SET(cpu, cpuset);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn cpu_is_set(cpu: usize, cpuset: &cpu_set_t) -> io::Result<bool> {
+    if cpu >= cpu_count() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("cpu id {cpu} exceeds cpu_set_t capacity"),
+        ));
+    }
+    Ok(unsafe { libc::CPU_ISSET(cpu, cpuset) })
+}
+
+/// Parse a kernel CPU-list string (e.g. `"0-3,8-11,15"`) into a `cpu_set_t`.
+fn parse_cpu_list(raw: &str) -> io::Result<cpu_set_t> {
+    let mut cpuset = empty_cpuset();
 
     for token in raw.trim().split(',') {
         let token = token.trim();
@@ -91,51 +137,49 @@ fn parse_cpu_list(raw: &str) -> io::Result<CpuSet> {
         }
 
         for id in start..=end {
-            cpuset
-                .set(id)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            cpu_set(id, &mut cpuset)?;
         }
     }
 
     Ok(cpuset)
 }
 
-/// Read a kernel CPU-list file and parse it into a `CpuSet`.
-fn read_cpuset(path: &str) -> io::Result<CpuSet> {
+/// Read a kernel CPU-list file and parse it into a `cpu_set_t`.
+fn read_cpuset(path: &str) -> io::Result<cpu_set_t> {
     let raw = fs::read_to_string(path)?;
     parse_cpu_list(&raw)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_cpu_list;
+    use super::{cpu_is_set, parse_cpu_list};
 
     #[test]
     fn parses_single_cpu() {
         let set = parse_cpu_list("4").unwrap();
-        assert!(set.is_set(4).unwrap());
-        assert!(!set.is_set(3).unwrap());
-        assert!(!set.is_set(5).unwrap());
+        assert!(cpu_is_set(4, &set).unwrap());
+        assert!(!cpu_is_set(3, &set).unwrap());
+        assert!(!cpu_is_set(5, &set).unwrap());
     }
 
     #[test]
     fn parses_range() {
         let set = parse_cpu_list("4-7").unwrap();
         for id in 4..=7 {
-            assert!(set.is_set(id).unwrap(), "cpu {id} should be set");
+            assert!(cpu_is_set(id, &set).unwrap(), "cpu {id} should be set");
         }
-        assert!(!set.is_set(3).unwrap());
-        assert!(!set.is_set(8).unwrap());
+        assert!(!cpu_is_set(3, &set).unwrap());
+        assert!(!cpu_is_set(8, &set).unwrap());
     }
 
     #[test]
     fn parses_mixed_list() {
         let set = parse_cpu_list("0-3,8-11,15").unwrap();
         for id in [0, 1, 2, 3, 8, 9, 10, 11, 15] {
-            assert!(set.is_set(id).unwrap(), "cpu {id} should be set");
+            assert!(cpu_is_set(id, &set).unwrap(), "cpu {id} should be set");
         }
         for id in [4, 5, 6, 7, 12, 13, 14, 16] {
-            assert!(!set.is_set(id).unwrap(), "cpu {id} should not be set");
+            assert!(!cpu_is_set(id, &set).unwrap(), "cpu {id} should not be set");
         }
     }
 
@@ -143,7 +187,7 @@ mod tests {
     fn parses_whitespace_and_trailing_newline() {
         let set = parse_cpu_list(" 4 - 7 \n").unwrap();
         for id in 4..=7 {
-            assert!(set.is_set(id).unwrap());
+            assert!(cpu_is_set(id, &set).unwrap());
         }
     }
 

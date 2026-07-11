@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 libc = "0.2"
-nix = { version = "0.31.3", features = ["sched"] }
 serde = "1.0.228"
 tokio = { version = "1.52.1", features = ["macros", "rt-multi-thread"] }
 toml = "1.1.2"

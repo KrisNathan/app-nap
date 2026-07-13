@@ -69,8 +69,17 @@ where
             return;
         };
 
-        self.tier_policies.revert(current_tier, app_state).await;
-        self.tier_policies.apply(next_tier, app_state).await;
+        if let Err(err) = self
+            .tier_policies
+            .revert(current_tier.clone(), app_state)
+            .await
+        {
+            warn!("failed to revert tier={current_tier:?} for pid={pid}: {err}");
+            return;
+        }
+        if let Err(err) = self.tier_policies.apply(next_tier.clone(), app_state).await {
+            warn!("failed to apply tier={next_tier:?} for pid={pid}: {err}");
+        }
     }
 
     async fn drop_app_state(&mut self, pid: pid_t) {
@@ -79,7 +88,13 @@ where
         };
 
         let current_tier = app_state.tier.clone();
-        self.tier_policies.revert(current_tier, app_state).await;
+        if let Err(err) = self
+            .tier_policies
+            .revert(current_tier.clone(), app_state)
+            .await
+        {
+            warn!("failed to revert tier={current_tier:?} while removing pid={pid}: {err}");
+        }
         self.app_states.remove(&pid);
     }
 

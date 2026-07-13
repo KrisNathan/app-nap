@@ -8,23 +8,23 @@ const SYSTEMD_PATH: &str = "/org/freedesktop/systemd1";
 const SYSTEMD_INTERFACE: &str = "org.freedesktop.systemd1.Manager";
 
 pub struct SystemdDbusClient {
-    conn: zbus::blocking::Connection,
+    conn: zbus::Connection,
 }
 
 impl SystemdDbusClient {
-    pub fn new(conn: zbus::blocking::Connection) -> Self {
+    pub fn new(conn: zbus::Connection) -> Self {
         Self { conn }
     }
 
-    pub fn freeze(&self, unit: &str) -> Result<(), SystemdError> {
-        self.call_method("FreezeUnit", &(unit,))
+    pub async fn freeze(&self, unit: &str) -> Result<(), SystemdError> {
+        self.call_method("FreezeUnit", &(unit,)).await
     }
 
-    pub fn thaw(&self, unit: &str) -> Result<(), SystemdError> {
-        self.call_method("ThawUnit", &(unit,))
+    pub async fn thaw(&self, unit: &str) -> Result<(), SystemdError> {
+        self.call_method("ThawUnit", &(unit,)).await
     }
 
-    pub fn set_property<T: Into<Value<'static>>>(
+    pub async fn set_property<T: Into<Value<'static>>>(
         &self,
         unit: &str,
         name: &str,
@@ -32,20 +32,23 @@ impl SystemdDbusClient {
     ) -> Result<(), SystemdError> {
         let properties: &[(&str, Value<'_>)] = &[(name, value.into())];
         self.call_method("SetUnitProperties", &(unit, true, properties))
+            .await
     }
 
-    fn call_method(
+    async fn call_method(
         &self,
         method: &str,
         body: &(impl Serialize + DynamicType),
     ) -> Result<(), SystemdError> {
-        self.conn.call_method(
-            Some(SYSTEMD_SERVICE),
-            SYSTEMD_PATH,
-            Some(SYSTEMD_INTERFACE),
-            method,
-            body,
-        )?;
+        self.conn
+            .call_method(
+                Some(SYSTEMD_SERVICE),
+                SYSTEMD_PATH,
+                Some(SYSTEMD_INTERFACE),
+                method,
+                body,
+            )
+            .await?;
         Ok(())
     }
 }

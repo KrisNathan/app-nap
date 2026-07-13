@@ -69,8 +69,8 @@ where
             return;
         };
 
-        self.tier_policies.revert(current_tier, app_state);
-        self.tier_policies.apply(next_tier, app_state);
+        self.tier_policies.revert(current_tier, app_state).await;
+        self.tier_policies.apply(next_tier, app_state).await;
     }
 
     async fn drop_app_state(&mut self, pid: pid_t) {
@@ -79,7 +79,7 @@ where
         };
 
         let current_tier = app_state.tier.clone();
-        self.tier_policies.revert(current_tier, app_state);
+        self.tier_policies.revert(current_tier, app_state).await;
         self.app_states.remove(&pid);
     }
 

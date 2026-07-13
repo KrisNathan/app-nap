@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     config_service.load()?;
 
     let dbus_conn = zbus::Connection::session().await?; // it's Arc under the hood so .clone is ok apparently
-    let systemd_client = SystemdDbusClient::new(dbus_conn.clone().into());
+    let systemd_client = SystemdDbusClient::new(dbus_conn.clone());
     let tier_policies = TierPolicySet::from_config(config_service.get_config(), systemd_client);
     let inhibit_service = KdeInhibitService::new(dbus_conn.clone());
     let media_service = MprisMediaService::new(dbus_conn.clone());

@@ -17,23 +17,27 @@ pub enum Action {
 }
 
 impl Action {
-    pub fn apply(&self, cgroups: &[String], systemd: &SystemdDbusClient) {
+    pub async fn apply(&self, cgroups: &[String], systemd: &SystemdDbusClient) {
         match self {
             Self::Signal => signal::stop(cgroups),
             Self::Ecore(action) => action.apply(cgroups),
-            Self::SystemdFreeze => systemd::freeze(systemd, cgroups),
-            Self::SystemdCpuQuota { quota } => systemd::set_cpu_quota(systemd, cgroups, *quota),
-            Self::SystemdCpuWeight { weight } => systemd::set_cpu_weight(systemd, cgroups, *weight),
+            Self::SystemdFreeze => systemd::freeze(systemd, cgroups).await,
+            Self::SystemdCpuQuota { quota } => {
+                systemd::set_cpu_quota(systemd, cgroups, *quota).await
+            }
+            Self::SystemdCpuWeight { weight } => {
+                systemd::set_cpu_weight(systemd, cgroups, *weight).await
+            }
         }
     }
 
-    pub fn revert(&self, cgroups: &[String], systemd: &SystemdDbusClient) {
+    pub async fn revert(&self, cgroups: &[String], systemd: &SystemdDbusClient) {
         match self {
             Self::Signal => signal::cont(cgroups),
             Self::Ecore(action) => action.revert(cgroups),
-            Self::SystemdFreeze => systemd::thaw(systemd, cgroups),
-            Self::SystemdCpuQuota { .. } => systemd::unset_cpu_quota(systemd, cgroups),
-            Self::SystemdCpuWeight { .. } => systemd::reset_cpu_weight(systemd, cgroups),
+            Self::SystemdFreeze => systemd::thaw(systemd, cgroups).await,
+            Self::SystemdCpuQuota { .. } => systemd::unset_cpu_quota(systemd, cgroups).await,
+            Self::SystemdCpuWeight { .. } => systemd::reset_cpu_weight(systemd, cgroups).await,
         }
     }
 }

@@ -31,17 +31,17 @@ impl TierPolicySet {
         }
     }
 
-    pub fn apply(&self, tier: Tier, app_state: &mut AppState) {
+    pub async fn apply(&self, tier: Tier, app_state: &mut AppState) {
         let policy = self.policy(tier);
         app_state.tier = policy.tier().clone();
         for action in policy.actions() {
-            action.apply(&app_state.cgroups, &self.systemd);
+            action.apply(&app_state.cgroups, &self.systemd).await;
         }
     }
 
-    pub fn revert(&self, tier: Tier, app_state: &mut AppState) {
+    pub async fn revert(&self, tier: Tier, app_state: &mut AppState) {
         for action in self.policy(tier).actions() {
-            action.revert(&app_state.cgroups, &self.systemd);
+            action.revert(&app_state.cgroups, &self.systemd).await;
         }
     }
 

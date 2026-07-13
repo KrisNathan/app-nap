@@ -1,5 +1,6 @@
 use crate::systemd::cgroup::get_pids_from_cgroups;
 use libc::{self, cpu_set_t, pid_t};
+use log::warn;
 use std::fs;
 use std::io;
 use std::mem;
@@ -31,11 +32,15 @@ impl ECoreAction {
     }
 
     pub fn apply(&self, cgroups: &[String]) {
-        set_affinity_for_cgroup(cgroups, &self.ecores).ok();
+        if let Err(err) = set_affinity_for_cgroup(cgroups, &self.ecores) {
+            warn!("failed to set E-core affinity for cgroups={cgroups:?}: {err}");
+        }
     }
 
     pub fn revert(&self, cgroups: &[String]) {
-        set_affinity_for_cgroup(cgroups, &self.allcores).ok();
+        if let Err(err) = set_affinity_for_cgroup(cgroups, &self.allcores) {
+            warn!("failed to restore CPU affinity for cgroups={cgroups:?}: {err}");
+        }
     }
 }
 

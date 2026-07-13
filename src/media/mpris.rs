@@ -1,38 +1,50 @@
 use libc::pid_t;
-use zbus::{Connection, Proxy};
+use zbus::Proxy;
 
-use super::MediaService;
+use crate::{media::MediaService, systemd::cgroup};
 
 pub struct MprisMediaService {
-    conn: Connection,
+    dbus_conn: zbus::Connection,
 }
 
 impl MediaService for MprisMediaService {
-    async fn list_playing_media_pids(&self) -> Result<Vec<libc::pid_t>, zbus::Error> {
-        let players = self.list_players().await?;
-        let playing_players = self.list_playing_players(players).await?;
+    async fn is_playing(&self, cgroups: &[String]) -> bool {
+        if cgroups.is_empty() {
+            return false;
+        }
+
+        let Ok(players) = self.list_players().await else {
+            return false;
+        };
+
+        let Ok(playing_players) = self.list_playing_players(players).await else {
+            return false;
+        };
         let mut pids = Vec::new();
 
         for player in playing_players {
-            let pid = self.get_pid_from_player(&player).await?;
+            let Ok(pid) = self.get_pid_from_player(&player).await else {
+                continue;
+            };
             pids.push(pid as pid_t);
         }
 
-        Ok(pids)
+        let Ok(related_pids) = cgroup::get_pids_from_cgroups(cgroups) else {
+            return false;
+        };
+
+        related_pids.iter().any(|p| pids.contains(p))
     }
 }
 
 impl MprisMediaService {
-    pub async fn new() -> Result<Self, zbus::Error> {
-        Ok(MprisMediaService {
-            conn: Connection::session().await?,
-        })
+    pub fn new(dbus_conn: zbus::Connection) -> Self {
+        Self { dbus_conn }
     }
 
-    // returns MPRIS dbus player service names
-    pub async fn list_players(&self) -> Result<Vec<String>, zbus::Error> {
+    async fn list_players(&self) -> Result<Vec<String>, zbus::Error> {
         let dbus_proxy = self
-            .conn
+            .dbus_conn
             .call_method(
                 Some("org.freedesktop.DBus"),
                 "/org/freedesktop/DBus",
@@ -53,16 +65,13 @@ impl MprisMediaService {
         Ok(player_name)
     }
 
-    // returns MPRIS dbus player service names
-    pub async fn list_playing_players(
-        &self,
-        players: Vec<String>,
-    ) -> Result<Vec<String>, zbus::Error> {
+    /// returns MPRIS dbus player service names
+    async fn list_playing_players(&self, players: Vec<String>) -> Result<Vec<String>, zbus::Error> {
         let mut playing_players = Vec::new();
 
         for player in players {
             let proxy = Proxy::new(
-                &self.conn,
+                &self.dbus_conn,
                 player.as_str(),
                 "/org/mpris/MediaPlayer2",
                 "org.mpris.MediaPlayer2.Player",
@@ -78,9 +87,9 @@ impl MprisMediaService {
         Ok(playing_players)
     }
 
-    pub async fn get_pid_from_player(&self, player: &str) -> Result<u32, zbus::Error> {
+    async fn get_pid_from_player(&self, player: &str) -> Result<pid_t, zbus::Error> {
         let reply = self
-            .conn
+            .dbus_conn
             .call_method(
                 Some("org.freedesktop.DBus"),
                 "/org/freedesktop/DBus",
@@ -90,7 +99,7 @@ impl MprisMediaService {
             )
             .await?;
 
-        let pid: u32 = reply.body().deserialize()?;
+        let pid: pid_t = reply.body().deserialize()?;
         Ok(pid)
     }
 }

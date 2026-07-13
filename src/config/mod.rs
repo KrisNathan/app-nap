@@ -1,9 +1,15 @@
-mod config;
-mod config_error;
-mod config_service;
-mod toml_config_service;
+use crate::config::{config::Config, config_error::ConfigError};
 
-pub use config::Config;
-pub use config_error::ConfigError;
-pub use config_service::ConfigService;
-pub use toml_config_service::TomlConfigService;
+pub mod config;
+pub mod config_error;
+pub mod toml;
+
+pub trait ConfigService {
+    fn new() -> Self
+    where
+        Self: Sized;
+
+    fn load(&mut self) -> Result<(), ConfigError>;
+
+    fn get_config(&self) -> &Config;
+}

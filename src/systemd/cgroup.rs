@@ -16,32 +16,51 @@ pub fn trim_hierarchy_id(cgroup: &str) -> &str {
 /// - starts with "app-"
 /// - ends with ".scope" or ".service"
 /// - in app.slice/
-pub(crate) fn is_app_scope_cgroup(trimmed_cgroup: &str) -> bool {
+pub fn is_app_scope_cgroup(trimmed_cgroup: &str) -> bool {
     let last = trimmed_cgroup.rsplit('/').next().unwrap_or("");
     last.starts_with("app-")
         && (last.ends_with(".scope") || last.ends_with(".service"))
         && trimmed_cgroup.contains("/app.slice/")
 }
 
-/// Resolve every PID in the app units of `pid`'s process tree.
+/// Collect distinct app cgroups in `pid`'s process tree.
+/// Trimmed, compatible with systemd cgroup naming.
 ///
-/// Walks ancestors until systemd and unions `cgroup.procs` from each distinct
-/// app cgroup. Covers Chromium-style splits where the window pid and its
-/// children live in different units.
-pub fn get_related_pids(pid: pid_t) -> io::Result<Vec<pid_t>> {
+/// Walks ancestors until systemd and returns each unique trimmed app-scope
+/// path. Covers Chromium-style splits where the window pid and its children
+/// live in different units.
+pub fn get_related_cgroups(pid: pid_t) -> io::Result<Vec<String>> {
     let mut related = Vec::new();
-    let mut seen_cgroups = Vec::new();
 
     for ancestor in ancestor_pids_until_systemd(pid)? {
         let Ok(cgroup) = get_process_cgroup(ancestor) else {
             continue;
         };
         let trimmed = trim_hierarchy_id(&cgroup).to_owned();
-        if !is_app_scope_cgroup(&trimmed) || seen_cgroups.iter().any(|seen| seen == &trimmed) {
+        if !is_app_scope_cgroup(&trimmed) || related.iter().any(|seen| seen == &trimmed) {
             continue;
         }
-        seen_cgroups.push(trimmed);
+        related.push(trimmed);
+    }
 
+    if related.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("no related app cgroups found for pid tree of {pid}"),
+        ));
+    }
+
+    Ok(related)
+}
+
+/// Resolve every PID currently in the given app cgroups.
+///
+/// Unions `cgroup.procs` from each path. Membership is live and should not be
+/// cached on app state — re-read when reconciling media playback.
+pub fn get_pids_from_cgroups(cgroups: &[String]) -> io::Result<Vec<pid_t>> {
+    let mut related = Vec::new();
+
+    for cgroup in cgroups {
         let Ok(pids) = get_pids_from_cgroup(cgroup) else {
             continue;
         };
@@ -55,7 +74,7 @@ pub fn get_related_pids(pid: pid_t) -> io::Result<Vec<pid_t>> {
     if related.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            format!("no related app pids found for pid tree of {pid}"),
+            "no pids found in provided app cgroups",
         ));
     }
 
@@ -64,7 +83,7 @@ pub fn get_related_pids(pid: pid_t) -> io::Result<Vec<pid_t>> {
 
 /// Get PIDs in a cgroup.
 /// ONLY for "app" cgroup.
-pub fn get_pids_from_cgroup(cgroup: String) -> io::Result<Vec<pid_t>> {
+pub fn get_pids_from_cgroup(cgroup: &str) -> io::Result<Vec<pid_t>> {
     let trimmed_cgroup = trim_hierarchy_id(&cgroup);
 
     if !is_app_scope_cgroup(trimmed_cgroup) {

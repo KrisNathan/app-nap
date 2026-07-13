@@ -1,5 +1,5 @@
-use super::NapBackend;
-use crate::systemd::cgroup::get_related_pids;
+use crate::action::Action;
+use crate::systemd::cgroup::get_pids_from_cgroups;
 use libc::{self, cpu_set_t, pid_t};
 use std::fs;
 use std::io;
@@ -18,12 +18,12 @@ use std::mem;
 /// `send_cont` restores them to all online cores. Applying affinity to the
 /// whole cgroup matches the `SystemSignalController` behavior so child
 /// processes are throttled too.
-pub struct ECoreBackend {
+pub struct ECoreAction {
     ecores: cpu_set_t,
     allcores: cpu_set_t,
 }
 
-impl ECoreBackend {
+impl ECoreAction {
     pub fn new() -> io::Result<Self> {
         Ok(Self {
             ecores: read_cpuset("/sys/devices/cpu_atom/cpus")?,
@@ -32,32 +32,30 @@ impl ECoreBackend {
     }
 }
 
-impl NapBackend for ECoreBackend {
-    fn send_stop(&self, pid: pid_t) -> io::Result<()> {
-        self.set_affinity_for_cgroup(pid, &self.ecores)
+impl Action for ECoreAction {
+    fn apply(&self, cgroups: &[String]) {
+        set_affinity_for_cgroup(cgroups, &self.ecores).ok();
     }
 
-    fn send_cont(&self, pid: pid_t) -> io::Result<()> {
-        self.set_affinity_for_cgroup(pid, &self.allcores)
+    fn revert(&self, cgroups: &[String]) {
+        set_affinity_for_cgroup(cgroups, &self.allcores).ok();
     }
 }
 
-impl ECoreBackend {
-    fn set_affinity_for_cgroup(&self, pid: pid_t, cpuset: &cpu_set_t) -> io::Result<()> {
-        let pids = get_related_pids(pid)?;
+fn set_affinity_for_cgroup(cgroups: &[String], cpuset: &cpu_set_t) -> io::Result<()> {
+    let pids = get_pids_from_cgroups(cgroups)?;
 
-        for p in pids {
-            // A pid may have exited between enumeration and the syscall; treat
-            // ESRCH as success so a racing exit doesn't fail the whole nap.
-            match set_affinity(p, cpuset) {
-                Ok(()) => {}
-                Err(err) if err.raw_os_error() == Some(libc::ESRCH) => {}
-                Err(err) => return Err(err),
-            }
+    for p in pids {
+        // A pid may have exited between enumeration and the syscall; treat
+        // ESRCH as success so a racing exit doesn't fail the whole nap.
+        match set_affinity(p, cpuset) {
+            Ok(()) => {}
+            Err(err) if err.raw_os_error() == Some(libc::ESRCH) => {}
+            Err(err) => return Err(err),
         }
-
-        Ok(())
     }
+
+    Ok(())
 }
 
 fn set_affinity(pid: pid_t, cpuset: &cpu_set_t) -> io::Result<()> {

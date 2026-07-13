@@ -1,39 +1,36 @@
 use libc::pid_t;
 use zbus::Proxy;
 
-use crate::{media::MediaService, systemd::cgroup};
+use crate::{
+    media::{MediaError, MediaService},
+    systemd::cgroup,
+};
 
 pub struct MprisMediaService {
     dbus_conn: zbus::Connection,
 }
 
 impl MediaService for MprisMediaService {
-    async fn is_playing(&self, cgroups: &[String]) -> bool {
+    async fn is_playing(&self, cgroups: &[String]) -> Result<bool, MediaError> {
         if cgroups.is_empty() {
-            return false;
+            return Ok(false);
         }
 
-        let Ok(players) = self.list_players().await else {
-            return false;
-        };
-
-        let Ok(playing_players) = self.list_playing_players(players).await else {
-            return false;
-        };
+        let players = self.list_players().await?;
+        let playing_players = self.list_playing_players(players).await?;
         let mut pids = Vec::new();
 
-        for player in playing_players {
-            let Ok(pid) = self.get_pid_from_player(&player).await else {
-                continue;
-            };
-            pids.push(pid as pid_t);
+        for player in &playing_players {
+            // A single player's PID may be unresolvable if it vanished
+            // mid-poll; skip it rather than failing the whole check.
+            if let Ok(pid) = self.get_pid_from_player(player).await {
+                pids.push(pid as pid_t);
+            }
         }
 
-        let Ok(related_pids) = cgroup::get_pids_from_cgroups(cgroups) else {
-            return false;
-        };
+        let related_pids = cgroup::get_pids_from_cgroups(cgroups)?;
 
-        related_pids.iter().any(|p| pids.contains(p))
+        Ok(related_pids.iter().any(|p| pids.contains(p)))
     }
 }
 

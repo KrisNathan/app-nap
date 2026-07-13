@@ -43,8 +43,20 @@ where
             return;
         };
 
-        let inhibited = self.inhibit_service.is_inhibiting(&app_state.cgroups).await;
-        let media_playing = self.media_service.is_playing(&app_state.cgroups).await;
+        let inhibited = match self.inhibit_service.is_inhibiting(&app_state.cgroups).await {
+            Ok(v) => v,
+            Err(err) => {
+                warn!("failed to check inhibitors for pid={pid}: {err}");
+                false
+            }
+        };
+        let media_playing = match self.media_service.is_playing(&app_state.cgroups).await {
+            Ok(v) => v,
+            Err(err) => {
+                warn!("failed to check media playback for pid={pid}: {err}");
+                false
+            }
+        };
         let has_active_window = app_state.windows.values().any(|window| window.active);
         let has_unminimized_window = app_state.windows.values().any(|window| !window.minimized);
         let current_tier = app_state.tier;

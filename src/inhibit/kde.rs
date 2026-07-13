@@ -1,4 +1,4 @@
-use crate::inhibit::InhibitService;
+use crate::inhibit::{InhibitError, InhibitService};
 
 // KDE PowerDevil exposes active idle/sleep inhibitors via the PolicyAgent
 // D-Bus interface. `ListInhibitions` returns `aas`: one string list per
@@ -21,16 +21,14 @@ pub struct KdeInhibitService {
 }
 
 impl InhibitService for KdeInhibitService {
-    async fn is_inhibiting(&self, cgroups: &[String]) -> bool {
+    async fn is_inhibiting(&self, cgroups: &[String]) -> Result<bool, InhibitError> {
         if cgroups.is_empty() {
-            return false;
+            return Ok(false);
         }
-        let Ok(inhibitors) = self.list_inhibitors().await else {
-            return false;
-        };
-        inhibitors
+        let inhibitors = self.list_inhibitors().await?;
+        Ok(inhibitors
             .iter()
-            .any(|who| cgroups.iter().any(|cgroup| cgroup.contains(who)))
+            .any(|who| cgroups.iter().any(|cgroup| cgroup.contains(who))))
     }
 }
 

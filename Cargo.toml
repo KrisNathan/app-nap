@@ -11,4 +11,10 @@ serde = "1.0.228"
 thiserror = "2.0.18"
 tokio = { version = "1.52.1", features = ["macros", "rt-multi-thread"] }
 toml = "1.1.2"
-zbus = { version = "5", features = ["blocking-api"] }
+zbus = { version = "5" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

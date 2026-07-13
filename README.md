@@ -26,7 +26,8 @@ Two signals keep an app awake regardless of window state:
 
 Each tier runs every configured action against the app's cgroup(s). The daemon
 only reverts a nap if it previously applied one, so it never resumes a process
-it didn't freeze. Tier transitions that fail are retried on the next reconcile.
+it didn't freeze. Failed tier transitions are retried on the next window state
+change, not automatically.
 
 ## Configuration
 

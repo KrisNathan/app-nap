@@ -23,6 +23,11 @@ pub fn is_app_scope_cgroup(trimmed_cgroup: &str) -> bool {
         && trimmed_cgroup.contains("/app.slice/")
 }
 
+pub fn systemd_unit_name(cgroup: &str) -> Option<&str> {
+    let trimmed_cgroup = trim_hierarchy_id(cgroup);
+    is_app_scope_cgroup(trimmed_cgroup).then(|| trimmed_cgroup.rsplit('/').next())?
+}
+
 /// Collect distinct app cgroups in `pid`'s process tree.
 /// Trimmed, compatible with systemd cgroup naming.
 ///
@@ -104,7 +109,7 @@ pub fn get_pids_from_cgroup(cgroup: &str) -> io::Result<Vec<pid_t>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::systemd::cgroup::trim_hierarchy_id;
+    use crate::systemd::cgroup::{systemd_unit_name, trim_hierarchy_id};
 
     use super::{get_pids_from_cgroup, get_process_cgroup};
     use std::io;
@@ -127,6 +132,15 @@ mod tests {
         assert_eq!(
             trim_hierarchy_id(cgroup),
             "/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-com.brave.Browser-1760258369.scope"
+        );
+    }
+
+    #[test]
+    fn extracts_systemd_unit_name_from_app_cgroup() {
+        let cgroup = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-com.brave.Browser-1760258369.scope\n";
+        assert_eq!(
+            systemd_unit_name(cgroup),
+            Some("app-flatpak-com.brave.Browser-1760258369.scope")
         );
     }
 

@@ -1,7 +1,7 @@
-use crate::config::{config::Config, config_error::ConfigError};
+use crate::config::{config_error::ConfigError, model::Config};
 
-pub mod config;
 pub mod config_error;
+pub mod model;
 pub mod toml;
 
 pub trait ConfigService {

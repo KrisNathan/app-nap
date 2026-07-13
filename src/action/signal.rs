@@ -1,15 +1,11 @@
-use crate::{action::Action, systemd::cgroup};
+use crate::systemd::cgroup;
 
-pub struct SignalAction {}
+pub fn stop(cgroups: &[String]) {
+    send_signal(cgroups, libc::SIGSTOP);
+}
 
-impl Action for SignalAction {
-    fn apply(&self, cgroups: &[String]) {
-        send_signal(cgroups, libc::SIGSTOP);
-    }
-
-    fn revert(&self, cgroups: &[String]) {
-        send_signal(cgroups, libc::SIGCONT);
-    }
+pub fn cont(cgroups: &[String]) {
+    send_signal(cgroups, libc::SIGCONT);
 }
 
 fn send_signal(cgroups: &[String], signal: libc::c_int) {

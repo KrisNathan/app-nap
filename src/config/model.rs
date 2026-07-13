@@ -72,16 +72,8 @@ impl Default for Tiers {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub tiers: Tiers,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            tiers: Tiers::default(),
-        }
-    }
 }

@@ -84,7 +84,7 @@ pub fn get_pids_from_cgroups(cgroups: &[String]) -> io::Result<Vec<pid_t>> {
 /// Get PIDs in a cgroup.
 /// ONLY for "app" cgroup.
 pub fn get_pids_from_cgroup(cgroup: &str) -> io::Result<Vec<pid_t>> {
-    let trimmed_cgroup = trim_hierarchy_id(&cgroup);
+    let trimmed_cgroup = trim_hierarchy_id(cgroup);
 
     if !is_app_scope_cgroup(trimmed_cgroup) {
         return Err(io::Error::new(

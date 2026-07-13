@@ -1,7 +1,7 @@
 use libc::pid_t;
 use zbus::{fdo, interface};
 
-use crate::{daemon::daemon::Daemon, inhibit::InhibitService, media::MediaService};
+use crate::{daemon::service::Daemon, inhibit::InhibitService, media::MediaService};
 
 pub struct DBusDaemon<I, M>
 where

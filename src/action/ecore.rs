@@ -1,4 +1,3 @@
-use crate::action::Action;
 use crate::systemd::cgroup::get_pids_from_cgroups;
 use libc::{self, cpu_set_t, pid_t};
 use std::fs;
@@ -30,14 +29,12 @@ impl ECoreAction {
             allcores: read_cpuset("/sys/devices/system/cpu/online")?,
         })
     }
-}
 
-impl Action for ECoreAction {
-    fn apply(&self, cgroups: &[String]) {
+    pub fn apply(&self, cgroups: &[String]) {
         set_affinity_for_cgroup(cgroups, &self.ecores).ok();
     }
 
-    fn revert(&self, cgroups: &[String]) {
+    pub fn revert(&self, cgroups: &[String]) {
         set_affinity_for_cgroup(cgroups, &self.allcores).ok();
     }
 }

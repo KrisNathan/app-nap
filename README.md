@@ -1,6 +1,6 @@
 # app-nap
 
-`app-nap` is a Linux PoC that freezes inactive apps on KDE Plasma 6.
+`app-nap` is a Linux daemon that saves power by napping inactive apps on KDE Plasma 6.
 
 ## How It Works
 

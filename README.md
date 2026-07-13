@@ -4,24 +4,61 @@
 
 ## How It Works
 
-- KWin script watches each window's `minimized` state.
-- When a window becomes inactive or minimized, the KWin script sends that
-  window's state and PID to the Rust daemon over session D-Bus.
-- The daemon tracks all windows per PID, not per window. If any window for a
-  PID is active, that app stays awake. If all windows are inactive and no media
-  is playing, the app can nap.
-- "Nap" is the power-saving action. The backend is selected in
-  `~/.config/app-nap/app-nap.toml`:
-  - `signal`: send `SIGSTOP` to freeze the process, then `SIGCONT` to resume
-    it. Caveat: a minimized window usually has to be unminimized before it can
-    be closed.
-  - `systemd-cpu-quota`: find the app's user scope or service and set a low (5%)
-    `CPUQuota` while it is napping, then clear the quota to resume.
-  - `systemd-freeze`: find the app's user scope or service and freeze/thaw the
-    unit with `systemctl freeze`/`systemctl thaw`. This suspends the whole unit
-    cgroup; it only works on systems using the unified cgroup v2 hierarchy and
-    when the app is in a freezable systemd unit (`.scope` or `.service`).
-- If a minimized app becomes active again, the daemon restores it.
+A KWin script watches each window's `active` and `minimized` state and forwards
+window state plus the window's PID to the Rust daemon over session D-Bus. The
+daemon, not the script, decides when to throttle or freeze.
+
+The daemon groups windows by PID and resolves each PID's systemd cgroup(s). On
+every state change it reconciles the PID into one of three tiers:
+
+- **Performance**: at least one window is active.
+- **Background**: no active window, but at least one window is unminimized.
+- **Nap**: all windows are minimized.
+
+Two signals keep an app awake regardless of window state:
+
+- **Media playback**: detected via MPRIS over D-Bus. If the app is playing
+  media, it stays in Background even when all windows are minimized.
+- **Idle inhibition**: detected via KDE PowerDevil's `PolicyAgent` over D-Bus.
+  Screen recording, streaming, or presentation inhibitors are a hard
+  do-not-throttle signal. The inhibitor's app ID is matched against the app's
+  cgroup path, not its process name.
+
+Each tier runs every configured action against the app's cgroup(s). The daemon
+only reverts a nap if it previously applied one, so it never resumes a process
+it didn't freeze. Tier transitions that fail are retried on the next reconcile.
+
+## Configuration
+
+Configure tier actions in `~/.config/app-nap/app-nap.toml`. Active apps use the
+performance tier. Inactive but unminimized apps use the background tier. Fully
+minimized apps use the nap tier unless media playback or an idle inhibitor keeps
+them awake.
+
+```toml
+[tiers.performance]
+actions = [{ type = "systemd-cpu-weight", weight = 100 }]
+
+[tiers.background]
+actions = [{ type = "systemd-cpu-weight", weight = 1 }]
+
+[tiers.nap]
+actions = [
+  { type = "systemd-cpu-quota", percent = 10 },
+  { type = "ecore" },
+]
+```
+
+Each `actions` array can contain multiple actions:
+
+- `signal` sends `SIGSTOP` when applied and `SIGCONT` when reverted.
+- `systemd-freeze` freezes and thaws the app's user unit.
+- `systemd-cpu-quota` sets `CPUQuota` using its `percent` value.
+- `systemd-cpu-weight` sets `CPUWeight` using its `weight` value.
+- `ecore` pins the app to efficiency cores and restores all online cores when
+  reverted. It requires a hybrid CPU that exposes `/sys/devices/cpu_atom/cpus`.
+
+See `example/app-nap.toml` for the complete example.
 
 ## Install
 
@@ -74,10 +111,10 @@ pgrep -a firefox
 ps -o pid,stat,cmd -p <PID>
 ```
 
-When the window is minimized, the process should move to stopped state (`T` in
-`ps` output) only when using the `signal` backend. With the `systemd-freeze`
-backend, check the unit status with `systemctl --user status <unit>`; with the
-`systemd-cpu-quota` backend, the process stays runnable but is CPU-throttled.
+When the window is minimized, the configured nap-tier actions should take
+effect. A `signal` action moves the process to stopped state (`T` in `ps`
+output). For `systemd-freeze`, `systemd-cpu-quota`, and `systemd-cpu-weight`,
+inspect the unit with `systemctl --user status <unit>`.
 
 ## Direct Daemon Smoke Test
 

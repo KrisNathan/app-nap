@@ -43,11 +43,11 @@ where
         &mut self,
         window_id: &str,
         pid: pid_t,
-        _minimized: bool,
+        minimized: bool,
     ) -> fdo::Result<()> {
         validate_input(window_id, pid)?;
         self.daemon
-            .window_minimize_changed(window_id, pid, _minimized)
+            .window_minimize_changed(window_id, pid, minimized)
             .await;
         Ok(())
     }
@@ -56,11 +56,11 @@ where
         &mut self,
         window_id: &str,
         pid: pid_t,
-        _active: bool,
+        active: bool,
     ) -> fdo::Result<()> {
         validate_input(window_id, pid)?;
         self.daemon
-            .window_active_changed(window_id, pid, _active)
+            .window_active_changed(window_id, pid, active)
             .await;
         Ok(())
     }

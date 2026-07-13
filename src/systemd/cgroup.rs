@@ -1,5 +1,5 @@
 use libc::pid_t;
-use std::{fs, io};
+use std::{collections::HashSet, fs, io};
 
 use super::proc::ancestor_pids_until_systemd;
 
@@ -35,17 +35,17 @@ pub fn systemd_unit_name(cgroup: &str) -> Option<&str> {
 /// path. Covers Chromium-style splits where the window pid and its children
 /// live in different units.
 pub fn get_related_cgroups(pid: pid_t) -> io::Result<Vec<String>> {
-    let mut related = Vec::new();
+    let mut related = HashSet::new();
 
     for ancestor in ancestor_pids_until_systemd(pid)? {
         let Ok(cgroup) = get_process_cgroup(ancestor) else {
             continue;
         };
         let trimmed = trim_hierarchy_id(&cgroup).to_owned();
-        if !is_app_scope_cgroup(&trimmed) || related.iter().any(|seen| seen == &trimmed) {
+        if !is_app_scope_cgroup(&trimmed) || related.contains(&trimmed) {
             continue;
         }
-        related.push(trimmed);
+        related.insert(trimmed);
     }
 
     if related.is_empty() {
@@ -55,7 +55,7 @@ pub fn get_related_cgroups(pid: pid_t) -> io::Result<Vec<String>> {
         ));
     }
 
-    Ok(related)
+    Ok(related.into_iter().collect())
 }
 
 /// Resolve every PID currently in the given app cgroups.
@@ -63,7 +63,7 @@ pub fn get_related_cgroups(pid: pid_t) -> io::Result<Vec<String>> {
 /// Unions `cgroup.procs` from each path. Membership is live and should not be
 /// cached on app state — re-read when reconciling media playback.
 pub fn get_pids_from_cgroups(cgroups: &[String]) -> io::Result<Vec<pid_t>> {
-    let mut related = Vec::new();
+    let mut related = HashSet::new();
 
     for cgroup in cgroups {
         let Ok(pids) = get_pids_from_cgroup(cgroup) else {
@@ -71,7 +71,7 @@ pub fn get_pids_from_cgroups(cgroups: &[String]) -> io::Result<Vec<pid_t>> {
         };
         for p in pids {
             if !related.contains(&p) {
-                related.push(p);
+                related.insert(p);
             }
         }
     }
@@ -83,7 +83,7 @@ pub fn get_pids_from_cgroups(cgroups: &[String]) -> io::Result<Vec<pid_t>> {
         ));
     }
 
-    Ok(related)
+    Ok(related.into_iter().collect())
 }
 
 /// Get PIDs in a cgroup.

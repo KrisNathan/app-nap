@@ -1,29 +1,43 @@
+use std::io;
+
 use crate::systemd::cgroup;
-use log::warn;
 
-pub fn stop(cgroups: &[String]) {
-    send_signal(cgroups, libc::SIGSTOP, "SIGSTOP");
+pub fn stop(cgroups: &[String]) -> io::Result<()> {
+    send_signal(cgroups, libc::SIGSTOP, "SIGSTOP")
 }
 
-pub fn cont(cgroups: &[String]) {
-    send_signal(cgroups, libc::SIGCONT, "SIGCONT");
+pub fn cont(cgroups: &[String]) -> io::Result<()> {
+    send_signal(cgroups, libc::SIGCONT, "SIGCONT")
 }
 
-fn send_signal(cgroups: &[String], signal: libc::c_int, signal_name: &str) {
-    let pids = match cgroup::get_pids_from_cgroups(cgroups) {
-        Ok(pids) => pids,
-        Err(err) => {
-            warn!("failed to resolve PIDs for signal={signal_name} cgroups={cgroups:?}: {err}");
-            return;
-        }
-    };
+fn send_signal(cgroups: &[String], signal: libc::c_int, signal_name: &str) -> io::Result<()> {
+    let pids = cgroup::get_pids_from_cgroups(cgroups).map_err(|err| {
+        io::Error::new(
+            err.kind(),
+            format!("failed to resolve PIDs for signal={signal_name} cgroups={cgroups:?}: {err}"),
+        )
+    })?;
 
     for pid in pids {
         if unsafe { libc::kill(pid, signal) } == -1 {
-            let err = std::io::Error::last_os_error();
+            let err = io::Error::last_os_error();
             if err.raw_os_error() != Some(libc::ESRCH) {
-                warn!("failed to send signal={signal_name} pid={pid}: {err}");
+                return Err(io::Error::new(
+                    err.kind(),
+                    format!("failed to send signal={signal_name} pid={pid}: {err}"),
+                ));
             }
         }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stop;
+
+    #[test]
+    fn reports_invalid_cgroup_as_failure() {
+        assert!(stop(&["/not-an-app-cgroup".to_string()]).is_err());
     }
 }

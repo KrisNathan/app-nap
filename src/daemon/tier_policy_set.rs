@@ -36,7 +36,7 @@ impl TierPolicySet {
         for action in policy.actions() {
             action.apply(&app_state.cgroups, &self.systemd).await?;
         }
-        app_state.tier = policy.tier().clone();
+        app_state.tier = *policy.tier();
         Ok(())
     }
 

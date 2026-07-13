@@ -6,7 +6,7 @@ pub struct WindowState {
     pub active: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Tier {
     Performance,
     Background,

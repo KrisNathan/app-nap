@@ -47,7 +47,7 @@ where
         let media_playing = self.media_service.is_playing(&app_state.cgroups).await;
         let has_active_window = app_state.windows.values().any(|window| window.active);
         let has_unminimized_window = app_state.windows.values().any(|window| !window.minimized);
-        let current_tier = app_state.tier.clone();
+        let current_tier = app_state.tier;
 
         let keep_awake = media_playing || inhibited;
 
@@ -69,15 +69,11 @@ where
             return;
         };
 
-        if let Err(err) = self
-            .tier_policies
-            .revert(current_tier.clone(), app_state)
-            .await
-        {
+        if let Err(err) = self.tier_policies.revert(current_tier, app_state).await {
             warn!("failed to revert tier={current_tier:?} for pid={pid}: {err}");
             return;
         }
-        if let Err(err) = self.tier_policies.apply(next_tier.clone(), app_state).await {
+        if let Err(err) = self.tier_policies.apply(next_tier, app_state).await {
             warn!("failed to apply tier={next_tier:?} for pid={pid}: {err}");
         }
     }
@@ -87,12 +83,8 @@ where
             return;
         };
 
-        let current_tier = app_state.tier.clone();
-        if let Err(err) = self
-            .tier_policies
-            .revert(current_tier.clone(), app_state)
-            .await
-        {
+        let current_tier = app_state.tier;
+        if let Err(err) = self.tier_policies.revert(current_tier, app_state).await {
             warn!("failed to revert tier={current_tier:?} while removing pid={pid}: {err}");
         }
         self.app_states.remove(&pid);

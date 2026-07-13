@@ -61,7 +61,7 @@ pub fn get_related_cgroups(pid: pid_t) -> io::Result<Vec<String>> {
 /// Resolve every PID currently in the given app cgroups.
 ///
 /// Unions `cgroup.procs` from each path. Membership is live and should not be
-/// cached on app state — re-read when reconciling media playback.
+/// cached on app state, re-read when reconciling media playback.
 pub fn get_pids_from_cgroups(cgroups: &[String]) -> io::Result<Vec<pid_t>> {
     let mut related = HashSet::new();
 

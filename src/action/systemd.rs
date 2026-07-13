@@ -4,6 +4,12 @@ use crate::systemd::{
     cgroup::systemd_unit_name, dbus_client::SystemdDbusClient, error::SystemdError,
 };
 
+// systemd exposes CPU quota over D-Bus as `CPUQuotaPerSecUSec` (u64 microseconds
+// per second), not the `CPUQuota=5%` string syntax that `systemctl set-property`
+// accepts. `systemctl` parses the percent form and converts it before sending.
+// We do the conversion ourselves: 1 second = 1_000_000 us, so 1% = 10_000 us.
+// systemd treats `u64::MAX` as "infinity" (no quota), matching the empty
+// `CPUQuota=` form used by `systemctl set-property` to clear the limit.
 const CPU_QUOTA_UNSET: u64 = u64::MAX;
 const CPU_WEIGHT_DEFAULT: u64 = 100;
 

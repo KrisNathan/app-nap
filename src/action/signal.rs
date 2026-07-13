@@ -19,6 +19,8 @@ fn send_signal(cgroups: &[String], signal: libc::c_int, signal_name: &str) -> io
     })?;
 
     for pid in pids {
+        // SAFETY: `libc::kill` is called with a numeric PID enumerated from the
+        // cgroup and a valid signal constant. ESRCH (process gone) is tolerated.
         if unsafe { libc::kill(pid, signal) } == -1 {
             let err = io::Error::last_os_error();
             if err.raw_os_error() != Some(libc::ESRCH) {

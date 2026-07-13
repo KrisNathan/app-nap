@@ -56,7 +56,7 @@ Each `actions` array can contain multiple actions:
 - `systemd-cpu-quota` sets `CPUQuota` using its `percent` value.
 - `systemd-cpu-weight` sets `CPUWeight` using its `weight` value.
 - `ecore` pins the app to efficiency cores and restores all online cores when
-  reverted. It requires a hybrid CPU that exposes `/sys/devices/cpu_atom/cpus`.
+  reverted. It requires a hybrid CPU that exposes `/sys/devices/cpu_atom/cpus`. (only for hybrid Intel CPUs: alder lake and newer)
 
 See `example/app-nap.toml` for the complete example.
 

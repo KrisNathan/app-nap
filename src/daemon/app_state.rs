@@ -11,6 +11,7 @@ pub enum Tier {
     Performance,
     Background,
     Nap,
+    Unknown, // transition failures
 }
 
 #[derive(Debug)]

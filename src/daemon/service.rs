@@ -71,10 +71,12 @@ where
 
         if let Err(err) = self.tier_policies.revert(current_tier, app_state).await {
             warn!("failed to revert tier={current_tier:?} for pid={pid}: {err}");
+            app_state.tier = Tier::Unknown;
             return;
         }
         if let Err(err) = self.tier_policies.apply(next_tier, app_state).await {
             warn!("failed to apply tier={next_tier:?} for pid={pid}: {err}");
+            app_state.tier = Tier::Unknown;
         }
     }
 

@@ -32,7 +32,9 @@ impl TierPolicySet {
     }
 
     pub async fn apply(&self, tier: Tier, app_state: &mut AppState) -> Result<(), ActionError> {
-        let policy = self.policy(tier);
+        let Some(policy) = self.policy(tier) else {
+            return Ok(());
+        };
         for action in policy.actions() {
             action.apply(&app_state.cgroups, &self.systemd).await?;
         }
@@ -41,17 +43,21 @@ impl TierPolicySet {
     }
 
     pub async fn revert(&self, tier: Tier, app_state: &mut AppState) -> Result<(), ActionError> {
-        for action in self.policy(tier).actions() {
+        let Some(policy) = self.policy(tier) else {
+            return Ok(());
+        };
+        for action in policy.actions() {
             action.revert(&app_state.cgroups, &self.systemd).await?;
         }
         Ok(())
     }
 
-    fn policy(&self, tier: Tier) -> &TierPolicy {
+    fn policy(&self, tier: Tier) -> Option<&TierPolicy> {
         match tier {
-            Tier::Performance => &self.performance,
-            Tier::Background => &self.background,
-            Tier::Nap => &self.nap,
+            Tier::Performance => Some(&self.performance),
+            Tier::Background => Some(&self.background),
+            Tier::Nap => Some(&self.nap),
+            Tier::Unknown => None,
         }
     }
 }

@@ -91,16 +91,17 @@ where
     }
 
     pub async fn add_window(&mut self, window_id: &str, pid: pid_t) {
-        let app_state = self.app_states.entry(pid).or_insert_with(|| {
-            let cgroups = match cgroup::get_related_cgroups(pid) {
-                Ok(cgroups) => cgroups,
-                Err(err) => {
-                    warn!("failed to resolve cgroups for pid={pid}: {err}");
-                    Vec::new()
-                }
-            };
-            AppState::new(cgroups)
-        });
+        let cgroups = match cgroup::get_related_cgroups(pid) {
+            Ok(cgroups) => cgroups,
+            Err(err) => {
+                warn!("failed to resolve cgroups for pid={pid}: {err}");
+                return;
+            }
+        };
+        let app_state = self
+            .app_states
+            .entry(pid)
+            .or_insert_with(|| AppState::new(cgroups));
         app_state
             .windows
             .entry(window_id.to_string())

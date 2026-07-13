@@ -132,21 +132,21 @@ mod tests {
 
     #[test]
     fn refuses_root_cgroup() {
-        let err = get_pids_from_cgroup("0::/\n".into()).unwrap_err();
+        let err = get_pids_from_cgroup("0::/\n").unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
 
     #[test]
     fn refuses_user_session_cgroup() {
         let cgroup = "0::/user.slice/user-1000.slice/user@1000.service\n";
-        let err = get_pids_from_cgroup(cgroup.into()).unwrap_err();
+        let err = get_pids_from_cgroup(cgroup).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
 
     #[test]
     fn refuses_system_slice() {
         let cgroup = "0::/system.slice/sshd.service\n";
-        let err = get_pids_from_cgroup(cgroup.into()).unwrap_err();
+        let err = get_pids_from_cgroup(cgroup).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
 
@@ -154,7 +154,7 @@ mod tests {
     fn refuses_app_unit_outside_app_slice() {
         // An app-* unit that is not under app.slice is not nap-eligible.
         let cgroup = "0::/user.slice/user-1000.slice/user@1000.service/app-flatpak-com.brave.Browser-1.scope\n";
-        let err = get_pids_from_cgroup(cgroup.into()).unwrap_err();
+        let err = get_pids_from_cgroup(cgroup).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
 
@@ -163,14 +163,14 @@ mod tests {
         // A non-app-* unit under app.slice is not nap-eligible.
         let cgroup =
             "0::/user.slice/user-1000.slice/user@1000.service/app.slice/pipewire.service\n";
-        let err = get_pids_from_cgroup(cgroup.into()).unwrap_err();
+        let err = get_pids_from_cgroup(cgroup).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
 
     #[test]
     fn refuses_plain_cgroup() {
         let cgroup = "0::/some/plain/cgroup\n";
-        let err = get_pids_from_cgroup(cgroup.into()).unwrap_err();
+        let err = get_pids_from_cgroup(cgroup).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
 }

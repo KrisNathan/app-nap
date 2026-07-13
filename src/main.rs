@@ -17,6 +17,10 @@ use crate::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let mut logger =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
+    logger.target(env_logger::Target::Stdout).init();
+
     let mut config_service = TomlConfigService::new();
     config_service.load()?;
 

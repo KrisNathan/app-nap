@@ -1,4 +1,4 @@
-use crate::{action::Action, daemon::process::Tier};
+use crate::{action::Action, daemon::app_state::Tier};
 
 pub struct TierPolicy {
     tier: Tier,

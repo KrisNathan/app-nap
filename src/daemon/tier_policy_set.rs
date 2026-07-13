@@ -2,7 +2,7 @@ use crate::{
     action::{self, ActionError},
     config::model::Config,
     daemon::{
-        process::{AppState, Tier},
+        app_state::{AppState, Tier},
         tier_policy::TierPolicy,
     },
     systemd::dbus_client::SystemdDbusClient,

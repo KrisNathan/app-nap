@@ -5,7 +5,7 @@ use log::warn;
 
 use crate::{
     daemon::{
-        process::{AppState, Tier, WindowState},
+        app_state::{AppState, Tier, WindowState},
         tier_policy_set::TierPolicySet,
     },
     inhibit::InhibitService,
@@ -130,14 +130,14 @@ where
     }
 
     pub async fn window_minimize_changed(&mut self, window_id: &str, pid: pid_t, minimized: bool) {
-        let Some(process) = self.app_states.get_mut(&pid) else {
+        let Some(app_state) = self.app_states.get_mut(&pid) else {
             warn!(
                 "minimize changed for unknown pid: window_id={window_id} pid={pid} minimized={minimized}"
             );
             return;
         };
 
-        let Some(window) = process.windows.get_mut(window_id) else {
+        let Some(window) = app_state.windows.get_mut(window_id) else {
             warn!(
                 "minimize changed for unknown window: window_id={window_id} pid={pid} minimized={minimized}"
             );
@@ -149,13 +149,13 @@ where
     }
 
     pub async fn window_active_changed(&mut self, window_id: &str, pid: pid_t, active: bool) {
-        let Some(process) = self.app_states.get_mut(&pid) else {
+        let Some(app_state) = self.app_states.get_mut(&pid) else {
             warn!(
                 "active changed for unknown pid: window_id={window_id} pid={pid} active={active}"
             );
             return;
         };
-        let Some(window) = process.windows.get_mut(window_id) else {
+        let Some(window) = app_state.windows.get_mut(window_id) else {
             warn!(
                 "active changed for unknown window: window_id={window_id} pid={pid} active={active}"
             );

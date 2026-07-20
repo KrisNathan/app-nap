@@ -1,29 +1,32 @@
-# Finding your E-cores for `low_power_cores`
+# E-core action
 
-`app-nap` can push napped apps onto your CPU's efficiency cores (E-cores) so
-the performance cores (P-cores) can reach deeper idle states. Set the
-`low_power_cores` list in `app-nap.toml` to the logical CPU numbers of your
-E-cores:
+The `ecore` action pushes napped apps onto the CPU's efficiency cores (E-cores)
+so the performance cores (P-cores) can reach deeper idle states. It requires a
+hybrid Intel CPU (Alder Lake and newer) that exposes
+`/sys/devices/cpu_atom/cpus`.
+
+The action auto-detects the E-core and online CPU sets at startup from the
+kernel, so no manual configuration is needed:
 
 ```toml
-low_power_cores = [4, 5, 6, 7]
+[tiers.nap]
+actions = [
+  { type = "systemd-cpu-quota", percent = 10 },
+  { type = "ecore" },
+]
 ```
 
-## How to find the E-core CPU numbers
-
-The kernel exposes the hybrid CPU split directly:
+## How the kernel exposes the split
 
 ```
 $ cat /sys/devices/cpu_atom/cpus
 4-7
 ```
 
-`cpu_atom` lists the E-cores; `cpu_core` lists the P-cores. Expand the range
-into a comma-separated list and put it in `low_power_cores`.
-
-If `/sys/devices/cpu_atom` does not exist, your CPU is not hybrid (or the
-kernel does not know about the split) and you should leave
-`low_power_cores = []`.
+`cpu_atom` lists the E-cores; `cpu_core` lists the P-cores. If
+`/sys/devices/cpu_atom` does not exist, the CPU is not hybrid (or the kernel
+does not know about the split) and the `ecore` action is skipped at load time
+with a warning.
 
 ## Verifying with `lscpu -e`
 
@@ -44,6 +47,6 @@ CPU NODE SOCKET CORE L1d:L1i:L2:L3 ONLINE    MAXMHZ   MINMHZ       MHZ
   7    0      0    7 70:70:8          yes 3700.0000 400.0000 1575.0000
 ```
 
-Here CPUs 4–7 have `MAXMHZ` of 3700, well below the 4700–4800 of CPUs 0–3 —
+Here CPUs 4-7 have `MAXMHZ` of 3700, well below the 4700-4800 of CPUs 0-3,
 matching the `4-7` from `cpu_atom`. The lower-frequency cluster is always the
 E-cores.

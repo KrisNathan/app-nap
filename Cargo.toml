@@ -4,9 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+env_logger = "0.11.8"
 libc = "0.2"
-nix = { version = "0.31.3", features = ["sched"] }
+log = "0.4.33"
 serde = "1.0.228"
+thiserror = "2.0.18"
 tokio = { version = "1.52.1", features = ["macros", "rt-multi-thread"] }
 toml = "1.1.2"
-zbus = { version = "5", features = ["blocking-api"] }
+zbus = { version = "5" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

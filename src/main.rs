@@ -1,57 +1,43 @@
-mod conf_service;
+mod action;
+mod config;
 mod daemon;
-mod inhibit_service;
-mod media_service;
-mod nap_backend;
+mod inhibit;
+mod media;
 mod systemd;
 
-use std::{error::Error, future::pending, sync::Arc};
-
-use conf_service::{ConfService, NapBackendType};
-use zbus::connection;
+use std::{error::Error, future::pending};
 
 use crate::{
-    conf_service::TomlConfService,
-    daemon::Daemon,
-    inhibit_service::KdeInhibitService,
-    media_service::MprisMediaService,
-    nap_backend::{
-        ECoreBackend, NapBackend, SystemSignalController, SystemdCPUQuotaBackend, SystemdClient,
-        SystemdCpuWeightBackend, SystemdFreezeBackend,
-    },
+    config::{ConfigService, toml::TomlConfigService},
+    daemon::{dbus::DBusDaemon, service::Daemon, tier_policy_set::TierPolicySet},
+    inhibit::kde::KdeInhibitService,
+    media::mpris::MprisMediaService,
+    systemd::dbus_client::SystemdDbusClient,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let mut conf_service = TomlConfService::new();
-    conf_service.load()?;
-    let conf = conf_service.get_conf()?.clone();
+    let mut logger =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
+    logger.target(env_logger::Target::Stdout).init();
 
-    let systemd_client = Arc::new(SystemdClient::new()?);
+    let mut config_service = TomlConfigService::new();
+    config_service.load()?;
 
-    let inactive_backend: Arc<dyn NapBackend> =
-        Arc::new(SystemdCpuWeightBackend::new(systemd_client));
+    let dbus_conn = zbus::Connection::session().await?; // it's Arc under the hood so .clone is ok apparently
+    let systemd_client = SystemdDbusClient::new(dbus_conn.clone());
+    let tier_policies = TierPolicySet::from_config(config_service.get_config(), systemd_client);
+    let inhibit_service = KdeInhibitService::new(dbus_conn.clone());
+    let media_service = MprisMediaService::new(dbus_conn.clone());
 
-    let nap_backend: Arc<dyn NapBackend> = match conf.nap_backend_type {
-        NapBackendType::SystemdCPUQuota => Arc::new(SystemdCPUQuotaBackend::new()?),
-        NapBackendType::SystemdFreeze => Arc::new(SystemdFreezeBackend::new()?),
-        NapBackendType::Signal => Arc::new(SystemSignalController),
-        NapBackendType::ECore => Arc::new(ECoreBackend::new()?),
-    };
+    let daemon = Daemon::new(tier_policies, inhibit_service, media_service);
+    let dbus_daemon = DBusDaemon::new(daemon);
 
-    let media_service = MprisMediaService::new().await?;
-    let inhibit_service = KdeInhibitService::new().await?;
-    let daemon = Daemon::new(
-        inactive_backend,
-        nap_backend,
-        Arc::new(media_service),
-        Arc::new(inhibit_service),
-    );
-    let _conn = connection::Builder::session()?
-        .name("dev.appnap.AppNap")?
-        .serve_at("/dev/appnap/AppNap", daemon)?
-        .build()
+    dbus_conn
+        .object_server()
+        .at("/dev/appnap/AppNap", dbus_daemon)
         .await?;
+    dbus_conn.request_name("dev.appnap.AppNap").await?;
 
     pending::<()>().await;
     Ok(())

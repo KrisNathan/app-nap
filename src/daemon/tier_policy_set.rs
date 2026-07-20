@@ -1,3 +1,5 @@
+use log::warn;
+
 use crate::{
     action::{self, ActionError},
     config::model::Config,
@@ -35,8 +37,25 @@ impl TierPolicySet {
         let Some(policy) = self.policy(tier) else {
             return Ok(());
         };
-        for action in policy.actions() {
-            action.apply(&app_state.cgroups, &self.systemd).await?;
+        let actions = policy.actions();
+        let mut applied = 0;
+        let mut apply_err = None;
+        for action in actions {
+            if let Err(err) = action.apply(&app_state.cgroups, &self.systemd).await {
+                apply_err = Some(err);
+                break;
+            }
+            applied += 1;
+        }
+        if let Some(err) = apply_err {
+            for prev in actions[..applied].iter().rev() {
+                if let Err(rollback_err) = prev.revert(&app_state.cgroups, &self.systemd).await {
+                    warn!(
+                        "failed to rollback applied action while applying tier={tier:?}: {rollback_err}"
+                    );
+                }
+            }
+            return Err(err);
         }
         app_state.tier = *policy.tier();
         Ok(())
@@ -46,8 +65,25 @@ impl TierPolicySet {
         let Some(policy) = self.policy(tier) else {
             return Ok(());
         };
-        for action in policy.actions() {
-            action.revert(&app_state.cgroups, &self.systemd).await?;
+        let actions = policy.actions();
+        let mut reverted = 0;
+        let mut revert_err = None;
+        for action in actions {
+            if let Err(err) = action.revert(&app_state.cgroups, &self.systemd).await {
+                revert_err = Some(err);
+                break;
+            }
+            reverted += 1;
+        }
+        if let Some(err) = revert_err {
+            for prev in actions[..reverted].iter().rev() {
+                if let Err(rollback_err) = prev.apply(&app_state.cgroups, &self.systemd).await {
+                    warn!(
+                        "failed to rollback reverted action while reverting tier={tier:?}: {rollback_err}"
+                    );
+                }
+            }
+            return Err(err);
         }
         Ok(())
     }

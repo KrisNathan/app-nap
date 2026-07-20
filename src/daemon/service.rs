@@ -81,14 +81,14 @@ where
             return;
         };
 
+        // Leave `tier` as the last successfully applied value on failure so the
+        // next reconcile retries the same transition instead of no-op'ing on Unknown.
         if let Err(err) = self.tier_policies.revert(current_tier, app_state).await {
             warn!("failed to revert tier={current_tier:?} for pid={pid}: {err}");
-            app_state.tier = Tier::Unknown;
             return;
         }
         if let Err(err) = self.tier_policies.apply(next_tier, app_state).await {
             warn!("failed to apply tier={next_tier:?} for pid={pid}: {err}");
-            app_state.tier = Tier::Unknown;
         }
     }
 

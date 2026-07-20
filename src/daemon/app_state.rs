@@ -11,7 +11,7 @@ pub enum Tier {
     Performance,
     Background,
     Nap,
-    Unknown, // transition failures
+    Unknown, // no successfully applied tier yet
 }
 
 #[derive(Debug)]
@@ -26,7 +26,7 @@ impl AppState {
         Self {
             windows: HashMap::new(),
             cgroups,
-            tier: Tier::Performance,
+            tier: Tier::Unknown,
         }
     }
 }

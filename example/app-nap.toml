@@ -1,15 +1,38 @@
+[cpu_watch]
+interval_ms = 10000
+idle_threshold = 0.05
+busy_threshold = 0.15
+throttle_idle_max = 0.01
+throttle_busy = 0.05
+ttl_idle = 2
+ttl_busy = 1
+
 [tiers.performance]
 actions = [
   { type = "systemd-cpu-weight", weight = 100 },
 ]
 
+# background default = busy
 [tiers.background]
 actions = [
   { type = "systemd-cpu-weight", weight = 1 },
 ]
 
+[tiers.background.idle]
+actions = [
+  { type = "systemd-cpu-weight", weight = 1 },
+  { type = "ecore" },
+]
+
+# nap default = idle (full nap)
 [tiers.nap]
 actions = [
   { type = "systemd-cpu-quota", percent = 10 },
+  { type = "ecore" },
+]
+
+[tiers.nap.busy]
+actions = [
+  { type = "systemd-cpu-quota", percent = 50 },
   { type = "ecore" },
 ]

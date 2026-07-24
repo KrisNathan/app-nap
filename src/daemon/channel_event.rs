@@ -19,5 +19,4 @@ pub enum ChannelEvent {
         pid: pid_t,
         active: bool,
     },
-    UsageWatchTick,
 }

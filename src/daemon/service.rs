@@ -1,10 +1,11 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use libc::pid_t;
-use log::warn;
-use tokio::sync::mpsc::Receiver;
+use log::{debug, warn};
+use tokio::{sync::mpsc::Receiver, time::MissedTickBehavior};
 
 use crate::{
+    config::model::CpuWatchConfig,
     daemon::{
         app_state::{AppState, Tier, WindowState},
         channel_event::ChannelEvent,
@@ -12,7 +13,7 @@ use crate::{
     },
     inhibit::InhibitService,
     media::MediaService,
-    systemd::cgroup,
+    systemd::{cgroup, cpu_stat},
 };
 
 pub struct Daemon<I, M>
@@ -24,7 +25,7 @@ where
     tier_policies: TierPolicySet,
     inhibit_service: I,
     media_service: M,
-    rx: Receiver<ChannelEvent>,
+    cpu_watch: CpuWatchConfig,
 }
 
 impl<I, M> Daemon<I, M>
@@ -36,52 +37,82 @@ where
         tier_policies: TierPolicySet,
         inhibit_service: I,
         media_service: M,
-        rx: Receiver<ChannelEvent>,
+        cpu_watch: CpuWatchConfig,
     ) -> Self {
         Self {
             app_states: HashMap::new(),
             tier_policies,
             inhibit_service,
             media_service,
-            rx,
+            cpu_watch,
         }
     }
 
-    pub async fn init(&mut self) {
+    pub async fn init(&mut self, mut rx: Receiver<ChannelEvent>) {
+        let mut ticker =
+            tokio::time::interval(Duration::from_millis(self.cpu_watch.interval_ms.max(1)));
+        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
-            if let Some(event) = self.rx.recv().await {
-                match event {
-                    ChannelEvent::AddWindow { window_id, pid } => {
-                        self.add_window(&window_id, pid).await
-                    }
-                    ChannelEvent::RemoveWindow { window_id, pid } => {
-                        self.remove_window(&window_id, pid).await
-                    }
-                    ChannelEvent::MinimizeChanged {
-                        window_id,
-                        pid,
-                        minimized,
-                    } => {
-                        self.window_minimize_changed(&window_id, pid, minimized)
-                            .await
-                    }
-                    ChannelEvent::ActiveChanged {
-                        window_id,
-                        pid,
-                        active,
-                    } => self.window_active_changed(&window_id, pid, active).await,
-                    ChannelEvent::UsageWatchTick => {
-                        self.usage_watch_tick().await;
-                    }
+            tokio::select! {
+                event = rx.recv() => {
+                    let Some(event) = event else { return };
+                    self.handle_event(event).await;
+                }
+                // The timer only ticks while the watch list is non-empty;
+                // otherwise the daemon is fully event-driven.
+                _ = ticker.tick(), if self.has_watched_apps() => {
+                    self.usage_watch_tick().await;
                 }
             }
         }
     }
 
+    async fn handle_event(&mut self, event: ChannelEvent) {
+        match event {
+            ChannelEvent::AddWindow { window_id, pid } => self.add_window(&window_id, pid).await,
+            ChannelEvent::RemoveWindow { window_id, pid } => {
+                self.remove_window(&window_id, pid).await
+            }
+            ChannelEvent::MinimizeChanged {
+                window_id,
+                pid,
+                minimized,
+            } => {
+                self.window_minimize_changed(&window_id, pid, minimized)
+                    .await
+            }
+            ChannelEvent::ActiveChanged {
+                window_id,
+                pid,
+                active,
+            } => self.window_active_changed(&window_id, pid, active).await,
+        }
+    }
+
+    /// The watch list is derived from desired tier: background/nap apps are
+    /// sampled, performance apps are not.
+    fn has_watched_apps(&self) -> bool {
+        self.app_states
+            .values()
+            .any(|app| matches!(app.tier, Tier::Background | Tier::Nap))
+    }
+
     async fn reconcile_state(&mut self, pid: pid_t) {
-        let Some(app_state) = self.app_states.get(&pid) else {
+        let Some(app_state) = self.app_states.get_mut(&pid) else {
             return;
         };
+
+        // App units can re-split (e.g. Chromium); refresh paths on reconcile.
+        // A changed set invalidates the sample baseline.
+        match cgroup::get_related_cgroups(pid) {
+            Ok(cgroups) if cgroups != app_state.cgroups => {
+                debug!("refreshed cgroups for pid={pid}: {cgroups:?}");
+                app_state.cgroups = cgroups;
+                app_state.load_tracker.clear_baseline();
+            }
+            Ok(_) => {}
+            Err(err) => warn!("failed to refresh cgroups for pid={pid}: {err}"),
+        }
 
         let inhibited = match self.inhibit_service.is_inhibiting(&app_state.cgroups).await {
             Ok(v) => v,
@@ -99,47 +130,73 @@ where
         };
         let has_active_window = app_state.windows.values().any(|window| window.active);
         let has_unminimized_window = app_state.windows.values().any(|window| !window.minimized);
-        let current_tier = app_state.tier;
 
-        let keep_awake = media_playing || inhibited;
-
-        let next_tier = if has_active_window {
+        // Focus or a hard keep-awake (inhibitor) means performance. MPRIS only
+        // blocks nap; it never forces performance or clears the load state.
+        let next_tier = if has_active_window || inhibited {
             Tier::Performance
-        } else if has_unminimized_window {
+        } else if has_unminimized_window || media_playing {
             Tier::Background
-        } else if !keep_awake {
-            Tier::Nap
         } else {
-            Tier::Background
+            Tier::Nap
         };
 
-        if current_tier == next_tier {
-            return;
+        if app_state.tier != next_tier {
+            debug!("pid={pid} tier {:?} -> {next_tier:?}", app_state.tier);
         }
+        if next_tier == Tier::Performance {
+            app_state.load_tracker.reset();
+        }
+        app_state.tier = next_tier;
 
-        let Some(app_state) = self.app_states.get_mut(&pid) else {
+        self.apply_effective_policy(pid).await;
+    }
+
+    /// Revert/apply only when the effective (tier, load) policy changes.
+    async fn apply_effective_policy(&mut self, pid: pid_t) {
+        let Some(app_state) = self.app_states.get(&pid) else {
             return;
         };
-
-        // Leave `tier` as the last successfully applied value on failure so the
-        // next reconcile retries the same transition instead of no-op'ing on Unknown.
-        if let Err(err) = self.tier_policies.revert(current_tier, app_state).await {
-            warn!("failed to revert tier={current_tier:?} for pid={pid}: {err}");
+        let Some(next) = self.tier_policies.resolve(app_state.tier, app_state.load()) else {
+            return;
+        };
+        if app_state.applied == Some(next) {
             return;
         }
-        if let Err(err) = self.tier_policies.apply(next_tier, app_state).await {
-            warn!("failed to apply tier={next_tier:?} for pid={pid}: {err}");
+        let current = app_state.applied;
+        let cgroups = app_state.cgroups.clone();
+
+        if let Some(current) = current
+            && let Err(err) = self.tier_policies.revert(current, &cgroups).await
+        {
+            warn!("failed to revert policy={current:?} for pid={pid}: {err}");
+            return;
+        }
+        if let Some(app_state) = self.app_states.get_mut(&pid) {
+            app_state.applied = None;
+        }
+
+        match self.tier_policies.apply(next, &cgroups).await {
+            Ok(()) => {
+                debug!("pid={pid} applied policy={next:?}");
+                if let Some(app_state) = self.app_states.get_mut(&pid) {
+                    app_state.applied = Some(next);
+                }
+            }
+            Err(err) => warn!("failed to apply policy={next:?} for pid={pid}: {err}"),
         }
     }
 
     async fn drop_app_state(&mut self, pid: pid_t) {
-        let Some(app_state) = self.app_states.get_mut(&pid) else {
+        let Some(app_state) = self.app_states.get(&pid) else {
             return;
         };
 
-        let current_tier = app_state.tier;
-        if let Err(err) = self.tier_policies.revert(current_tier, app_state).await {
-            warn!("failed to revert tier={current_tier:?} while removing pid={pid}: {err}");
+        if let Some(current) = app_state.applied {
+            let cgroups = app_state.cgroups.clone();
+            if let Err(err) = self.tier_policies.revert(current, &cgroups).await {
+                warn!("failed to revert policy={current:?} while removing pid={pid}: {err}");
+            }
         }
         self.app_states.remove(&pid);
     }
@@ -221,6 +278,41 @@ where
     }
 
     async fn usage_watch_tick(&mut self) {
-        // TODO
+        let watched: Vec<pid_t> = self
+            .app_states
+            .iter()
+            .filter(|(_, app)| matches!(app.tier, Tier::Background | Tier::Nap))
+            .map(|(pid, _)| *pid)
+            .collect();
+
+        for pid in watched {
+            let flipped = {
+                let Some(app_state) = self.app_states.get_mut(&pid) else {
+                    continue;
+                };
+                let sample = match cpu_stat::sample_cgroups(&app_state.cgroups) {
+                    Ok(sample) => sample,
+                    Err(err) => {
+                        warn!("failed to sample cpu.stat for pid={pid}: {err}");
+                        continue;
+                    }
+                };
+                let flipped = app_state.load_tracker.observe(sample, &self.cpu_watch);
+                debug!(
+                    "pid={pid} tier={:?} load={:?} usage={:.3} throttle={:.3} queued={:?} ttl={}",
+                    app_state.tier,
+                    app_state.load_tracker.load,
+                    app_state.load_tracker.usage,
+                    app_state.load_tracker.throttle,
+                    app_state.load_tracker.queued_load,
+                    app_state.load_tracker.ttl,
+                );
+                flipped
+            };
+            if let Some(load) = flipped {
+                debug!("pid={pid} load -> {load:?}");
+                self.apply_effective_policy(pid).await;
+            }
+        }
     }
 }

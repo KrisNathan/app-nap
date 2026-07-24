@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 use crate::{
     config::{ConfigService, toml::TomlConfigService},
     daemon::{
-        channel_event::ChannelEvent, cpu_watch, dbus::DBusDaemon, service::Daemon,
+        channel_event::ChannelEvent, dbus::DBusDaemon, service::Daemon,
         tier_policy_set::TierPolicySet,
     },
     inhibit::kde::KdeInhibitService,
@@ -31,19 +31,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let dbus_conn = zbus::Connection::session().await?; // it's Arc under the hood so .clone is ok apparently
     let systemd_client = SystemdDbusClient::new(dbus_conn.clone());
     let tier_policies = TierPolicySet::from_config(config_service.get_config(), systemd_client);
+    let cpu_watch = config_service.get_config().cpu_watch.clone();
     let inhibit_service = KdeInhibitService::new(dbus_conn.clone());
     let media_service = MprisMediaService::new(dbus_conn.clone());
 
     let (tx, rx) = mpsc::channel::<ChannelEvent>(32);
 
-    let mut daemon = Daemon::new(tier_policies, inhibit_service, media_service, rx);
+    let mut daemon = Daemon::new(tier_policies, inhibit_service, media_service, cpu_watch);
     tokio::spawn(async move {
-        daemon.init().await;
+        daemon.init(rx).await;
     });
 
     let dbus_daemon = DBusDaemon::new(tx.clone());
-
-    tokio::spawn(cpu_watch::init(tx.clone()));
 
     dbus_conn
         .object_server()

@@ -1,42 +1,44 @@
 use libc::pid_t;
+use tokio::sync::mpsc::Sender;
 use zbus::{fdo, interface};
 
-use crate::{daemon::service::Daemon, inhibit::InhibitService, media::MediaService};
+use crate::daemon::channel_event::ChannelEvent;
 
-pub struct DBusDaemon<I, M>
-where
-    I: InhibitService,
-    M: MediaService,
-{
-    daemon: Daemon<I, M>,
+pub struct DBusDaemon {
+    tx: Sender<ChannelEvent>,
 }
 
-impl<I, M> DBusDaemon<I, M>
-where
-    I: InhibitService,
-    M: MediaService,
-{
-    pub fn new(daemon: Daemon<I, M>) -> Self {
-        Self { daemon }
+impl DBusDaemon {
+    pub fn new(tx: Sender<ChannelEvent>) -> Self {
+        Self { tx }
+    }
+
+    async fn enqueue(&self, event: ChannelEvent) -> fdo::Result<()> {
+        self.tx
+            .send(event)
+            .await
+            .map_err(|_| fdo::Error::Failed("daemon event loop is not running".into()))
     }
 }
 
 #[interface(name = "dev.appnap.AppNap1")]
-impl<I, M> DBusDaemon<I, M>
-where
-    I: InhibitService + 'static,
-    M: MediaService + 'static,
-{
+impl DBusDaemon {
     async fn add_window(&mut self, window_id: &str, pid: pid_t) -> fdo::Result<()> {
         validate_input(window_id, pid)?;
-        self.daemon.add_window(window_id, pid).await;
-        Ok(())
+        self.enqueue(ChannelEvent::AddWindow {
+            window_id: window_id.into(),
+            pid,
+        })
+        .await
     }
 
     async fn remove_window(&mut self, window_id: &str, pid: pid_t) -> fdo::Result<()> {
         validate_input(window_id, pid)?;
-        self.daemon.remove_window(window_id, pid).await;
-        Ok(())
+        self.enqueue(ChannelEvent::RemoveWindow {
+            window_id: window_id.into(),
+            pid,
+        })
+        .await
     }
 
     async fn minimized_changed(
@@ -46,10 +48,12 @@ where
         minimized: bool,
     ) -> fdo::Result<()> {
         validate_input(window_id, pid)?;
-        self.daemon
-            .window_minimize_changed(window_id, pid, minimized)
-            .await;
-        Ok(())
+        self.enqueue(ChannelEvent::MinimizeChanged {
+            window_id: window_id.into(),
+            pid,
+            minimized,
+        })
+        .await
     }
 
     async fn active_changed(
@@ -59,10 +63,12 @@ where
         active: bool,
     ) -> fdo::Result<()> {
         validate_input(window_id, pid)?;
-        self.daemon
-            .window_active_changed(window_id, pid, active)
-            .await;
-        Ok(())
+        self.enqueue(ChannelEvent::ActiveChanged {
+            window_id: window_id.into(),
+            pid,
+            active,
+        })
+        .await
     }
 }
 

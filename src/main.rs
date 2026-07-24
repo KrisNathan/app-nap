@@ -6,10 +6,14 @@ mod media;
 mod systemd;
 
 use std::{error::Error, future::pending};
+use tokio::sync::mpsc;
 
 use crate::{
     config::{ConfigService, toml::TomlConfigService},
-    daemon::{dbus::DBusDaemon, service::Daemon, tier_policy_set::TierPolicySet},
+    daemon::{
+        channel_event::ChannelEvent, cpu_watch, dbus::DBusDaemon, service::Daemon,
+        tier_policy_set::TierPolicySet,
+    },
     inhibit::kde::KdeInhibitService,
     media::mpris::MprisMediaService,
     systemd::dbus_client::SystemdDbusClient,
@@ -30,8 +34,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let inhibit_service = KdeInhibitService::new(dbus_conn.clone());
     let media_service = MprisMediaService::new(dbus_conn.clone());
 
-    let daemon = Daemon::new(tier_policies, inhibit_service, media_service);
-    let dbus_daemon = DBusDaemon::new(daemon);
+    let (tx, rx) = mpsc::channel::<ChannelEvent>(32);
+
+    let mut daemon = Daemon::new(tier_policies, inhibit_service, media_service, rx);
+    tokio::spawn(async move {
+        daemon.init().await;
+    });
+
+    let dbus_daemon = DBusDaemon::new(tx.clone());
+
+    tokio::spawn(cpu_watch::init(tx.clone()));
 
     dbus_conn
         .object_server()

@@ -2,10 +2,12 @@ use std::collections::HashMap;
 
 use libc::pid_t;
 use log::warn;
+use tokio::sync::mpsc::Receiver;
 
 use crate::{
     daemon::{
         app_state::{AppState, Tier, WindowState},
+        channel_event::ChannelEvent,
         tier_policy_set::TierPolicySet,
     },
     inhibit::InhibitService,
@@ -18,10 +20,11 @@ where
     I: InhibitService,
     M: MediaService,
 {
-    pub app_states: HashMap<pid_t, AppState>, // key: app pid provided by kwin
-    pub tier_policies: TierPolicySet,
-    pub inhibit_service: I,
-    pub media_service: M,
+    app_states: HashMap<pid_t, AppState>, // key: app pid provided by kwin
+    tier_policies: TierPolicySet,
+    inhibit_service: I,
+    media_service: M,
+    rx: Receiver<ChannelEvent>,
 }
 
 impl<I, M> Daemon<I, M>
@@ -29,12 +32,49 @@ where
     I: InhibitService,
     M: MediaService,
 {
-    pub fn new(tier_policies: TierPolicySet, inhibit_service: I, media_service: M) -> Self {
+    pub fn new(
+        tier_policies: TierPolicySet,
+        inhibit_service: I,
+        media_service: M,
+        rx: Receiver<ChannelEvent>,
+    ) -> Self {
         Self {
             app_states: HashMap::new(),
             tier_policies,
             inhibit_service,
             media_service,
+            rx,
+        }
+    }
+
+    pub async fn init(&mut self) {
+        loop {
+            if let Some(event) = self.rx.recv().await {
+                match event {
+                    ChannelEvent::AddWindow { window_id, pid } => {
+                        self.add_window(&window_id, pid).await
+                    }
+                    ChannelEvent::RemoveWindow { window_id, pid } => {
+                        self.remove_window(&window_id, pid).await
+                    }
+                    ChannelEvent::MinimizeChanged {
+                        window_id,
+                        pid,
+                        minimized,
+                    } => {
+                        self.window_minimize_changed(&window_id, pid, minimized)
+                            .await
+                    }
+                    ChannelEvent::ActiveChanged {
+                        window_id,
+                        pid,
+                        active,
+                    } => self.window_active_changed(&window_id, pid, active).await,
+                    ChannelEvent::UsageWatchTick => {
+                        self.usage_watch_tick().await;
+                    }
+                }
+            }
         }
     }
 
@@ -178,5 +218,9 @@ where
 
         window.active = active;
         self.reconcile_state(pid).await
+    }
+
+    async fn usage_watch_tick(&mut self) {
+        // TODO
     }
 }

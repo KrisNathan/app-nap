@@ -2,7 +2,10 @@ use std::{collections::HashMap, time::Duration};
 
 use libc::pid_t;
 use log::{debug, warn};
-use tokio::{sync::mpsc::Receiver, time::MissedTickBehavior};
+use tokio::{
+    sync::{mpsc::Receiver, oneshot},
+    time::MissedTickBehavior,
+};
 
 use crate::{
     config::model::CpuLoadPollingConfig,
@@ -10,10 +13,11 @@ use crate::{
         app_state::{AppState, Tier, WindowState},
         channel_event::ChannelEvent,
         policies::Policies,
+        snapshot::AppSnapshot,
     },
     inhibit::InhibitService,
     media::MediaService,
-    systemd::{cgroup, cpu_stat},
+    systemd::{cgroup, cpu_stat, proc},
 };
 
 pub struct Daemon<I, M>
@@ -99,7 +103,22 @@ where
                 pid,
                 active,
             } => self.active_changed(&window_id, pid, active).await,
+            ChannelEvent::ListApps { reply } => self.list_apps(reply),
         }
+    }
+
+    /// Answer a state query. Sorted by pid so repeated queries read the same
+    /// way; the `HashMap` order is not stable.
+    fn list_apps(&self, reply: oneshot::Sender<Vec<AppSnapshot>>) {
+        let mut apps: Vec<AppSnapshot> = self
+            .app_states
+            .iter()
+            .map(|(pid, app_state)| AppSnapshot::new(*pid, app_state))
+            .collect();
+        apps.sort_by_key(|app| app.pid);
+
+        // The caller may already have given up; nothing to recover here.
+        let _ = reply.send(apps);
     }
 
     /// Background/nap apps are polled for cpu load; performance apps are not.
@@ -214,10 +233,10 @@ where
                 return;
             }
         };
-        let app_state = self
-            .app_states
-            .entry(pid)
-            .or_insert_with(|| AppState::new(cgroups));
+        let app_state = self.app_states.entry(pid).or_insert_with(|| {
+            // Reporting only, so a dead pid just yields a nameless app.
+            AppState::new(proc::process_comm(pid).unwrap_or_default(), cgroups)
+        });
         app_state
             .windows
             .entry(window_id.to_string())

@@ -126,12 +126,32 @@ Methods:
 - `RemoveWindow(s window_id, i pid)`
 - `MinimizedChanged(s window_id, i pid, b minimized)`
 - `ActiveChanged(s window_id, i pid, b active)`
+- `ListApps() -> a(issssddasa(sbb))`
 
 ```sh
 busctl --user call dev.appnap.AppNap /dev/appnap/AppNap dev.appnap.AppNap1 AddWindow si "random-uuid" 1234
 busctl --user call dev.appnap.AppNap /dev/appnap/AppNap dev.appnap.AppNap1 MinimizedChanged sib "random-uuid" 1234 true
 busctl --user call dev.appnap.AppNap /dev/appnap/AppNap dev.appnap.AppNap1 ActiveChanged sib "random-uuid" 1234 false
+busctl --user --json=short call dev.appnap.AppNap /dev/appnap/AppNap dev.appnap.AppNap1 ListApps
 ```
+
+## Reading Daemon State
+
+The four window methods are one-way: the KWin script fires them and the event
+loop owns all state afterwards. `ListApps` is the read side of that loop, so it
+cannot answer from the D-Bus object itself — the handler pushes a
+`ChannelEvent::ListApps` carrying a `oneshot` sender, the event loop projects
+every `AppState` into an `AppSnapshot`, and the reply travels back down that
+channel. State stays single-owner, and the query is serialized against event
+handling instead of racing it.
+
+Per app: pid, `comm`, tier, load, applied policy (empty until the first
+successful apply), last sampled usage and throttle in core-equivalents, related
+cgroups, and every tracked window. Apps are sorted by pid and windows by id, so
+repeated queries read the same way.
+
+`scripts/app-nap-ls.sh` (installed as `app-nap-ls`) is the CLI over this: a
+table by default, `-v` for cgroups and windows, `-j` for JSON.
 
 KWin Scripting Console:
 

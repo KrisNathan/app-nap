@@ -80,6 +80,7 @@ Lastly, enable the KWin Script in KDE Settings.
 This creates:
 
 - `~/.local/bin/app-nap`
+- `~/.local/bin/app-nap-ls`
 - `~/.config/systemd/user/app-nap.service`
 - `~/.config/app-nap/app-nap.toml` if missing
 - KWin script package `appnap`
@@ -102,6 +103,34 @@ disable the KWin plugin:
 
 The uninstall script removes the generated default config only if it was not
 edited.
+
+## Inspecting State
+
+`app-nap-ls` asks the running daemon what it currently tracks:
+
+```console
+$ app-nap-ls
+PID     APP       TIER         LOAD  POLICY           USAGE  THROTTLE  WINDOWS
+4242    firefox   performance  -     performance      -      -         2
+7311    brave     background   idle  background-idle  0.02   0.00      1
+9013    steam     nap          busy  nap-busy         0.34   0.11      1
+```
+
+- `TIER` is the tier the daemon wants the app in.
+- `LOAD` is the busy/idle CPU state, only sampled on background and nap.
+- `POLICY` is the policy actually applied; it lags the tier while a
+  transition keeps failing, and is `-` before anything has been applied.
+- `USAGE` and `THROTTLE` are core-equivalents (1.00 = one fully busy core)
+  from the last poll.
+
+`app-nap-ls -v` adds each app's cgroups and windows, and `app-nap-ls -j` prints
+the raw snapshot as JSON. It needs `busctl` and `jq`.
+
+The same data is available over D-Bus directly:
+
+```bash
+busctl --user call dev.appnap.AppNap /dev/appnap/AppNap dev.appnap.AppNap1 ListApps
+```
 
 ## Quick Test Run
 

@@ -1,4 +1,7 @@
 use libc::pid_t;
+use tokio::sync::oneshot;
+
+use crate::daemon::snapshot::AppSnapshot;
 
 pub enum ChannelEvent {
     AddWindow {
@@ -18,5 +21,10 @@ pub enum ChannelEvent {
         window_id: String,
         pid: pid_t,
         active: bool,
+    },
+    /// Read-only query: the daemon answers with a snapshot of every app it
+    /// tracks.
+    ListApps {
+        reply: oneshot::Sender<Vec<AppSnapshot>>,
     },
 }

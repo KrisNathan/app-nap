@@ -12,6 +12,18 @@ pub enum PolicyKey {
     NapBusy,
 }
 
+impl PolicyKey {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PolicyKey::Performance => "performance",
+            PolicyKey::BackgroundBusy => "background-busy",
+            PolicyKey::BackgroundIdle => "background-idle",
+            PolicyKey::NapIdle => "nap-idle",
+            PolicyKey::NapBusy => "nap-busy",
+        }
+    }
+}
+
 /// Action list for one effective policy.
 pub struct Policy {
     actions: Vec<Action>,

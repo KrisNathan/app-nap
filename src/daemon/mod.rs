@@ -5,5 +5,6 @@ pub mod load_tracker;
 pub mod policies;
 pub mod policy;
 mod runtime;
+pub mod snapshot;
 
 pub use runtime::Daemon;

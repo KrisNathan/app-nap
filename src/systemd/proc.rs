@@ -38,7 +38,7 @@ fn process_ppid(pid: pid_t) -> io::Result<pid_t> {
     ))
 }
 
-fn process_comm(pid: pid_t) -> io::Result<String> {
+pub fn process_comm(pid: pid_t) -> io::Result<String> {
     let comm = fs::read_to_string(format!("/proc/{pid}/comm"))?;
     Ok(comm.trim().to_owned())
 }

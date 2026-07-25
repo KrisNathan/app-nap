@@ -16,6 +16,17 @@ pub enum Tier {
     Unknown, // not reconciled yet
 }
 
+impl Tier {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Tier::Performance => "performance",
+            Tier::Background => "background",
+            Tier::Nap => "nap",
+            Tier::Unknown => "unknown",
+        }
+    }
+}
+
 /// CPU load sub-state on `background` / `nap`; unused on `performance`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Load {
@@ -23,8 +34,19 @@ pub enum Load {
     Idle,
 }
 
+impl Load {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Load::Busy => "busy",
+            Load::Idle => "idle",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct AppState {
+    /// `comm` of the window pid, cached for reporting only.
+    pub name: String,
     pub windows: HashMap<String, WindowState>,
     pub cgroups: Vec<String>,
     /// Desired tier from window / media / inhibitor events.
@@ -36,8 +58,9 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(cgroups: Vec<String>) -> Self {
+    pub fn new(name: String, cgroups: Vec<String>) -> Self {
         Self {
+            name,
             windows: HashMap::new(),
             cgroups,
             tier: Tier::Unknown,

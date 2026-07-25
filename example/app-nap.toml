@@ -1,4 +1,4 @@
-[cpu_watch]
+[cpu_load_polling]
 interval_ms = 10000
 idle_threshold = 0.05
 busy_threshold = 0.15

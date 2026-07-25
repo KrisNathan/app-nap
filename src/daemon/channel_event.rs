@@ -9,7 +9,7 @@ pub enum ChannelEvent {
         window_id: String,
         pid: pid_t,
     },
-    MinimizeChanged {
+    MinimizedChanged {
         window_id: String,
         pid: pid_t,
         minimized: bool,

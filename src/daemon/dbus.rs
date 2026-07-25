@@ -48,7 +48,7 @@ impl DBusDaemon {
         minimized: bool,
     ) -> fdo::Result<()> {
         validate_input(window_id, pid)?;
-        self.enqueue(ChannelEvent::MinimizeChanged {
+        self.enqueue(ChannelEvent::MinimizedChanged {
             window_id: window_id.into(),
             pid,
             minimized,

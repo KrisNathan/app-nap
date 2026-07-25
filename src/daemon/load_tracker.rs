@@ -1,6 +1,8 @@
-use crate::{config::model::CpuWatchConfig, daemon::app_state::Load, systemd::cpu_stat::CpuSample};
+use crate::{
+    config::model::CpuLoadPollingConfig, daemon::app_state::Load, systemd::cpu_stat::CpuSample,
+};
 
-/// Busy/idle hysteresis for one watched app: dual thresholds (dead band) plus
+/// Busy/idle hysteresis for one cpu-load-polled app: dual thresholds (dead band) plus
 /// a throttle escape hatch, and a TTL so a candidate must persist before it is
 /// applied. Cold start is `Busy`; the first sample only sets the baseline.
 #[derive(Debug)]
@@ -36,7 +38,7 @@ impl LoadTracker {
     }
 
     /// Feed a sample; returns the new load when the hysteresis applies a change.
-    pub fn observe(&mut self, sample: CpuSample, config: &CpuWatchConfig) -> Option<Load> {
+    pub fn observe(&mut self, sample: CpuSample, config: &CpuLoadPollingConfig) -> Option<Load> {
         let Some(prev) = &self.last_sample else {
             self.last_sample = Some(sample);
             return None;
@@ -94,8 +96,8 @@ mod tests {
 
     use super::*;
 
-    fn config() -> CpuWatchConfig {
-        CpuWatchConfig::default()
+    fn config() -> CpuLoadPollingConfig {
+        CpuLoadPollingConfig::default()
     }
 
     fn sample(at: Instant, usage_delta: u64, throttle_delta: u64) -> CpuSample {

@@ -5,7 +5,7 @@ use log::{debug, warn};
 use tokio::{sync::mpsc::Receiver, time::MissedTickBehavior};
 
 use crate::{
-    config::model::CpuWatchConfig,
+    config::model::CpuLoadPollingConfig,
     daemon::{
         app_state::{AppState, Tier, WindowState},
         channel_event::ChannelEvent,
@@ -25,7 +25,7 @@ where
     tier_policies: TierPolicySet,
     inhibit_service: I,
     media_service: M,
-    cpu_watch: CpuWatchConfig,
+    cpu_load_polling: CpuLoadPollingConfig,
 }
 
 fn resolve_next_tier(
@@ -52,20 +52,21 @@ where
         tier_policies: TierPolicySet,
         inhibit_service: I,
         media_service: M,
-        cpu_watch: CpuWatchConfig,
+        cpu_load_polling: CpuLoadPollingConfig,
     ) -> Self {
         Self {
             app_states: HashMap::new(),
             tier_policies,
             inhibit_service,
             media_service,
-            cpu_watch,
+            cpu_load_polling,
         }
     }
 
-    pub async fn init(&mut self, mut rx: Receiver<ChannelEvent>) {
-        let mut ticker =
-            tokio::time::interval(Duration::from_millis(self.cpu_watch.interval_ms.max(1)));
+    pub async fn run(&mut self, mut rx: Receiver<ChannelEvent>) {
+        let mut ticker = tokio::time::interval(Duration::from_millis(
+            self.cpu_load_polling.interval_ms.max(1),
+        ));
         ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
             tokio::select! {
@@ -73,10 +74,10 @@ where
                     let Some(event) = event else { return };
                     self.handle_event(event).await;
                 }
-                // The timer only ticks while the watch list is non-empty;
+                // The timer only ticks while cpu-load polling has targets;
                 // otherwise the daemon is fully event-driven.
-                _ = ticker.tick(), if self.has_watched_apps() => {
-                    self.usage_watch_tick().await;
+                _ = ticker.tick(), if self.has_cpu_load_apps() => {
+                    self.cpu_load_tick().await;
                 }
             }
         }
@@ -88,25 +89,23 @@ where
             ChannelEvent::RemoveWindow { window_id, pid } => {
                 self.remove_window(&window_id, pid).await
             }
-            ChannelEvent::MinimizeChanged {
+            ChannelEvent::MinimizedChanged {
                 window_id,
                 pid,
                 minimized,
             } => {
-                self.window_minimize_changed(&window_id, pid, minimized)
-                    .await
+                self.minimized_changed(&window_id, pid, minimized).await
             }
             ChannelEvent::ActiveChanged {
                 window_id,
                 pid,
                 active,
-            } => self.window_active_changed(&window_id, pid, active).await,
+            } => self.active_changed(&window_id, pid, active).await,
         }
     }
 
-    /// The watch list is derived from desired tier: background/nap apps are
-    /// sampled, performance apps are not.
-    fn has_watched_apps(&self) -> bool {
+    /// Background/nap apps are polled for cpu load; performance apps are not.
+    fn has_cpu_load_apps(&self) -> bool {
         self.app_states
             .values()
             .any(|app| matches!(app.tier, Tier::Background | Tier::Nap))
@@ -254,17 +253,17 @@ where
         self.reconcile_state(pid).await
     }
 
-    pub async fn window_minimize_changed(&mut self, window_id: &str, pid: pid_t, minimized: bool) {
+    pub async fn minimized_changed(&mut self, window_id: &str, pid: pid_t, minimized: bool) {
         let Some(app_state) = self.app_states.get_mut(&pid) else {
             warn!(
-                "minimize changed for unknown pid: window_id={window_id} pid={pid} minimized={minimized}"
+                "minimized changed for unknown pid: window_id={window_id} pid={pid} minimized={minimized}"
             );
             return;
         };
 
         let Some(window) = app_state.windows.get_mut(window_id) else {
             warn!(
-                "minimize changed for unknown window: window_id={window_id} pid={pid} minimized={minimized}"
+                "minimized changed for unknown window: window_id={window_id} pid={pid} minimized={minimized}"
             );
             return;
         };
@@ -273,7 +272,7 @@ where
         self.reconcile_state(pid).await
     }
 
-    pub async fn window_active_changed(&mut self, window_id: &str, pid: pid_t, active: bool) {
+    pub async fn active_changed(&mut self, window_id: &str, pid: pid_t, active: bool) {
         let Some(app_state) = self.app_states.get_mut(&pid) else {
             warn!(
                 "active changed for unknown pid: window_id={window_id} pid={pid} active={active}"
@@ -291,15 +290,15 @@ where
         self.reconcile_state(pid).await
     }
 
-    async fn usage_watch_tick(&mut self) {
-        let watched: Vec<pid_t> = self
+    async fn cpu_load_tick(&mut self) {
+        let pids: Vec<pid_t> = self
             .app_states
             .iter()
             .filter(|(_, app)| matches!(app.tier, Tier::Background | Tier::Nap))
             .map(|(pid, _)| *pid)
             .collect();
 
-        for pid in watched {
+        for pid in pids {
             let flipped = {
                 let Some(app_state) = self.app_states.get_mut(&pid) else {
                     continue;
@@ -311,7 +310,9 @@ where
                         continue;
                     }
                 };
-                let flipped = app_state.load_tracker.observe(sample, &self.cpu_watch);
+                let flipped = app_state
+                    .load_tracker
+                    .observe(sample, &self.cpu_load_polling);
                 debug!(
                     "pid={pid} tier={:?} load={:?} usage={:.3} throttle={:.3} queued={:?} ttl={}",
                     app_state.tier,

@@ -109,10 +109,10 @@ fn default_ttl_busy() -> u32 {
     1
 }
 
-/// CPU load measurement for watch-listed (background/nap) apps.
+/// Polling settings for CPU load on background/nap apps.
 /// Usage and throttle are in core-equivalents (1.0 = one fully busy core).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CpuWatchConfig {
+pub struct CpuLoadPollingConfig {
     #[serde(default = "default_interval_ms")]
     pub interval_ms: u64,
     #[serde(default = "default_idle_threshold")]
@@ -129,7 +129,7 @@ pub struct CpuWatchConfig {
     pub ttl_busy: u32,
 }
 
-impl Default for CpuWatchConfig {
+impl Default for CpuLoadPollingConfig {
     fn default() -> Self {
         Self {
             interval_ms: default_interval_ms(),
@@ -148,7 +148,7 @@ pub struct Config {
     #[serde(default)]
     pub tiers: Tiers,
     #[serde(default)]
-    pub cpu_watch: CpuWatchConfig,
+    pub cpu_load_polling: CpuLoadPollingConfig,
 }
 
 #[cfg(test)]
@@ -156,10 +156,10 @@ mod tests {
     use super::{Action, Config};
 
     #[test]
-    fn parses_load_variants_and_cpu_watch() {
+    fn parses_load_variants_and_cpu_load_polling() {
         let config: Config = toml::from_str(
             r#"
-[cpu_watch]
+[cpu_load_polling]
 interval_ms = 5000
 ttl_idle = 3
 
@@ -178,10 +178,10 @@ actions = [{ type = "systemd-cpu-quota", percent = 50 }]
         )
         .unwrap();
 
-        assert_eq!(config.cpu_watch.interval_ms, 5000);
-        assert_eq!(config.cpu_watch.ttl_idle, 3);
+        assert_eq!(config.cpu_load_polling.interval_ms, 5000);
+        assert_eq!(config.cpu_load_polling.ttl_idle, 3);
         // Unset keys keep defaults.
-        assert!((config.cpu_watch.idle_threshold - 0.05).abs() < f64::EPSILON);
+        assert!((config.cpu_load_polling.idle_threshold - 0.05).abs() < f64::EPSILON);
 
         let background_idle = config.tiers.background.idle.unwrap();
         assert_eq!(background_idle.actions, vec![Action::Ecore]);

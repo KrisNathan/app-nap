@@ -165,7 +165,7 @@ where
 
     /// Revert/apply only when the effective (tier, load) policy changes.
     async fn apply_effective_policy(&mut self, pid: pid_t) {
-        let Some(app_state) = self.app_states.get(&pid) else {
+        let Some(app_state) = self.app_states.get_mut(&pid) else {
             return;
         };
         let Some(next) = self.policies.resolve(app_state.tier, app_state.load()) else {
@@ -174,25 +174,19 @@ where
         if app_state.applied == Some(next) {
             return;
         }
-        let current = app_state.applied;
-        let cgroups = app_state.cgroups.clone();
 
-        if let Some(current) = current
-            && let Err(err) = self.policies.revert(current, &cgroups).await
+        if let Some(current) = app_state.applied
+            && let Err(err) = self.policies.revert(current, &app_state.cgroups).await
         {
             warn!("failed to revert policy={current:?} for pid={pid}: {err}");
             return;
         }
-        if let Some(app_state) = self.app_states.get_mut(&pid) {
-            app_state.applied = None;
-        }
+        app_state.applied = None;
 
-        match self.policies.apply(next, &cgroups).await {
+        match self.policies.apply(next, &app_state.cgroups).await {
             Ok(()) => {
                 debug!("pid={pid} applied policy={next:?}");
-                if let Some(app_state) = self.app_states.get_mut(&pid) {
-                    app_state.applied = Some(next);
-                }
+                app_state.applied = Some(next);
             }
             Err(err) => warn!("failed to apply policy={next:?} for pid={pid}: {err}"),
         }

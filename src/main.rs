@@ -10,10 +10,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     config::{ConfigService, toml::TomlConfigService},
-    daemon::{
-        channel_event::ChannelEvent, dbus::DBusDaemon, service::Daemon,
-        policies::Policies,
-    },
+    daemon::{Daemon, channel_event::ChannelEvent, dbus::DBusDaemon, policies::Policies},
     inhibit::kde::KdeInhibitService,
     media::mpris::MprisMediaService,
     systemd::dbus_client::SystemdDbusClient,
@@ -37,12 +34,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let (tx, rx) = mpsc::channel::<ChannelEvent>(32);
 
-    let mut daemon = Daemon::new(
-        policies,
-        inhibit_service,
-        media_service,
-        cpu_load_polling,
-    );
+    let mut daemon = Daemon::new(policies, inhibit_service, media_service, cpu_load_polling);
     tokio::spawn(async move {
         daemon.run(rx).await;
     });

@@ -93,9 +93,7 @@ where
                 window_id,
                 pid,
                 minimized,
-            } => {
-                self.minimized_changed(&window_id, pid, minimized).await
-            }
+            } => self.minimized_changed(&window_id, pid, minimized).await,
             ChannelEvent::ActiveChanged {
                 window_id,
                 pid,
@@ -362,10 +360,7 @@ mod tests {
 
     #[test]
     fn minimized_inactive_with_no_media_yields_nap() {
-        assert_eq!(
-            resolve_next_tier(false, false, false, false),
-            Tier::Nap
-        );
+        assert_eq!(resolve_next_tier(false, false, false, false), Tier::Nap);
     }
 
     #[test]
@@ -387,5 +382,4 @@ mod tests {
             Tier::Performance
         );
     }
-
 }

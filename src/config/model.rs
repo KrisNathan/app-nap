@@ -85,12 +85,15 @@ fn default_interval_ms() -> u64 {
     10_000
 }
 
+/// Quiet-but-chatty apps (a browser ticking timers, a chat client polling)
+/// idle around 0.05-0.10, so the idle ceiling sits above that band. Busy keeps
+/// a 0.10-wide dead band above it, which is what stops idle/busy flapping.
 fn default_idle_threshold() -> f64 {
-    0.05
+    0.10
 }
 
 fn default_busy_threshold() -> f64 {
-    0.15
+    0.20
 }
 
 fn default_throttle_idle_max() -> f64 {
@@ -181,7 +184,7 @@ actions = [{ type = "systemd-cpu-quota", percent = 50 }]
         assert_eq!(config.cpu_load_polling.interval_ms, 5000);
         assert_eq!(config.cpu_load_polling.ttl_idle, 3);
         // Unset keys keep defaults.
-        assert!((config.cpu_load_polling.idle_threshold - 0.05).abs() < f64::EPSILON);
+        assert!((config.cpu_load_polling.idle_threshold - 0.10).abs() < f64::EPSILON);
 
         let background_idle = config.tiers.background.idle.unwrap();
         assert_eq!(background_idle.actions, vec![Action::Ecore]);

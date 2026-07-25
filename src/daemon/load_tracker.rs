@@ -109,9 +109,9 @@ mod tests {
     }
 
     const SEC: Duration = Duration::from_secs(10);
-    // Core-equivalents at a 10s tick: 0.01 idle-ish, 0.10 dead band, 0.5 busy.
+    // Core-equivalents at a 10s tick: 0.01 idle-ish, 0.15 dead band, 0.5 busy.
     const LOW: u64 = 100_000;
-    const MID: u64 = 1_000_000;
+    const MID: u64 = 1_500_000;
     const HIGH: u64 = 5_000_000;
 
     /// A tracker already in `Idle`, with its last sample at `t0 + 3*SEC`;

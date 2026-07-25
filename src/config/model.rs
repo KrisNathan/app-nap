@@ -24,27 +24,27 @@ fn default_cpu_weight() -> u64 {
     1
 }
 
-/// Actions for one effective policy. `[tiers.x]` is the base for the tier;
-/// optional `[tiers.x.idle]` / `[tiers.x.busy]` override it for that load.
+/// Actions for one config tier slot. `[tiers.x]` is the base; optional
+/// `[tiers.x.idle]` / `[tiers.x.busy]` override it for that load.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Tier {
+pub struct TierConfig {
     #[serde(default)]
     pub actions: Vec<Action>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub idle: Option<Box<Tier>>,
+    pub idle: Option<Box<TierConfig>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub busy: Option<Box<Tier>>,
+    pub busy: Option<Box<TierConfig>>,
 }
 
-fn default_performance_tier() -> Tier {
-    Tier {
+fn default_performance_tier() -> TierConfig {
+    TierConfig {
         actions: vec![Action::SystemdCpuWeight { weight: 100 }],
         ..Default::default()
     }
 }
 
-fn default_background_tier() -> Tier {
-    Tier {
+fn default_background_tier() -> TierConfig {
+    TierConfig {
         actions: vec![Action::SystemdCpuWeight {
             weight: default_cpu_weight(),
         }],
@@ -52,8 +52,8 @@ fn default_background_tier() -> Tier {
     }
 }
 
-fn default_nap_tier() -> Tier {
-    Tier {
+fn default_nap_tier() -> TierConfig {
+    TierConfig {
         actions: vec![Action::SystemdCpuQuota {
             percent: default_cpu_quota_percent(),
         }],
@@ -64,11 +64,11 @@ fn default_nap_tier() -> Tier {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tiers {
     #[serde(default = "default_performance_tier")]
-    pub performance: Tier,
+    pub performance: TierConfig,
     #[serde(default = "default_background_tier")]
-    pub background: Tier,
+    pub background: TierConfig,
     #[serde(default = "default_nap_tier")]
-    pub nap: Tier,
+    pub nap: TierConfig,
 }
 
 impl Default for Tiers {

@@ -12,7 +12,7 @@ use crate::{
     config::{ConfigService, toml::TomlConfigService},
     daemon::{
         channel_event::ChannelEvent, dbus::DBusDaemon, service::Daemon,
-        tier_policy_set::TierPolicySet,
+        policies::Policies,
     },
     inhibit::kde::KdeInhibitService,
     media::mpris::MprisMediaService,
@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let dbus_conn = zbus::Connection::session().await?; // it's Arc under the hood so .clone is ok apparently
     let systemd_client = SystemdDbusClient::new(dbus_conn.clone());
-    let tier_policies = TierPolicySet::from_config(config_service.get_config(), systemd_client);
+    let policies = Policies::from_config(config_service.get_config(), systemd_client);
     let cpu_load_polling = config_service.get_config().cpu_load_polling.clone();
     let inhibit_service = KdeInhibitService::new(dbus_conn.clone());
     let media_service = MprisMediaService::new(dbus_conn.clone());
@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (tx, rx) = mpsc::channel::<ChannelEvent>(32);
 
     let mut daemon = Daemon::new(
-        tier_policies,
+        policies,
         inhibit_service,
         media_service,
         cpu_load_polling,

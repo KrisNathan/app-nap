@@ -5,17 +5,17 @@ use crate::{
     config::model::Config,
     daemon::{
         app_state::{Load, Tier},
-        tier_policy::{PolicyKey, TierPolicy},
+        policy::{Policy, PolicyKey},
     },
     systemd::dbus_client::SystemdDbusClient,
 };
 
-pub struct TierPolicySet {
-    performance: TierPolicy,
-    background_busy: TierPolicy,
-    background_idle: Option<TierPolicy>,
-    nap_idle: TierPolicy,
-    nap_busy: Option<TierPolicy>,
+pub struct Policies {
+    performance: Policy,
+    background_busy: Policy,
+    background_idle: Option<Policy>,
+    nap_idle: Policy,
+    nap_busy: Option<Policy>,
     systemd: SystemdDbusClient,
 }
 
@@ -43,24 +43,25 @@ fn resolve_policy_key(
     }
 }
 
-impl TierPolicySet {
+impl Policies {
+    /// Map config `[tiers.*]` slots into effective policies.
     pub fn from_config(config: &Config, systemd: SystemdDbusClient) -> Self {
         Self {
-            performance: TierPolicy::new(action::from_config(&config.tiers.performance.actions)),
-            background_busy: TierPolicy::new(action::from_config(&config.tiers.background.actions)),
+            performance: Policy::new(action::from_config(&config.tiers.performance.actions)),
+            background_busy: Policy::new(action::from_config(&config.tiers.background.actions)),
             background_idle: config
                 .tiers
                 .background
                 .idle
                 .as_ref()
-                .map(|tier| TierPolicy::new(action::from_config(&tier.actions))),
-            nap_idle: TierPolicy::new(action::from_config(&config.tiers.nap.actions)),
+                .map(|cfg| Policy::new(action::from_config(&cfg.actions))),
+            nap_idle: Policy::new(action::from_config(&config.tiers.nap.actions)),
             nap_busy: config
                 .tiers
                 .nap
                 .busy
                 .as_ref()
-                .map(|tier| TierPolicy::new(action::from_config(&tier.actions))),
+                .map(|cfg| Policy::new(action::from_config(&cfg.actions))),
             systemd,
         }
     }
@@ -125,7 +126,7 @@ impl TierPolicySet {
         Ok(())
     }
 
-    fn policy(&self, key: PolicyKey) -> &TierPolicy {
+    fn policy(&self, key: PolicyKey) -> &Policy {
         match key {
             PolicyKey::Performance => &self.performance,
             PolicyKey::BackgroundBusy => &self.background_busy,
@@ -204,10 +205,7 @@ mod tests {
     #[test]
     fn unknown_tier_resolves_to_nothing() {
         for load in [Load::Busy, Load::Idle] {
-            assert_eq!(
-                resolve_policy_key(Tier::Unknown, load, true, true),
-                None
-            );
+            assert_eq!(resolve_policy_key(Tier::Unknown, load, true, true), None);
         }
     }
 }

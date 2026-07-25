@@ -12,11 +12,12 @@ pub enum PolicyKey {
     NapBusy,
 }
 
-pub struct TierPolicy {
+/// Action list for one effective policy.
+pub struct Policy {
     actions: Vec<Action>,
 }
 
-impl TierPolicy {
+impl Policy {
     pub fn new(actions: Vec<Action>) -> Self {
         Self { actions }
     }

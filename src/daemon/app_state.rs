@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::daemon::{load_tracker::LoadTracker, tier_policy::PolicyKey};
+use crate::daemon::{load_tracker::LoadTracker, policy::PolicyKey};
 
 #[derive(Debug)]
 pub struct WindowState {

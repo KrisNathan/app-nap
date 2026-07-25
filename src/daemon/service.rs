@@ -9,7 +9,7 @@ use crate::{
     daemon::{
         app_state::{AppState, Tier, WindowState},
         channel_event::ChannelEvent,
-        tier_policy_set::TierPolicySet,
+        policies::Policies,
     },
     inhibit::InhibitService,
     media::MediaService,
@@ -22,7 +22,7 @@ where
     M: MediaService,
 {
     app_states: HashMap<pid_t, AppState>, // key: app pid provided by kwin
-    tier_policies: TierPolicySet,
+    policies: Policies,
     inhibit_service: I,
     media_service: M,
     cpu_load_polling: CpuLoadPollingConfig,
@@ -49,14 +49,14 @@ where
     M: MediaService,
 {
     pub fn new(
-        tier_policies: TierPolicySet,
+        policies: Policies,
         inhibit_service: I,
         media_service: M,
         cpu_load_polling: CpuLoadPollingConfig,
     ) -> Self {
         Self {
             app_states: HashMap::new(),
-            tier_policies,
+            policies,
             inhibit_service,
             media_service,
             cpu_load_polling,
@@ -170,7 +170,7 @@ where
         let Some(app_state) = self.app_states.get(&pid) else {
             return;
         };
-        let Some(next) = self.tier_policies.resolve(app_state.tier, app_state.load()) else {
+        let Some(next) = self.policies.resolve(app_state.tier, app_state.load()) else {
             return;
         };
         if app_state.applied == Some(next) {
@@ -180,7 +180,7 @@ where
         let cgroups = app_state.cgroups.clone();
 
         if let Some(current) = current
-            && let Err(err) = self.tier_policies.revert(current, &cgroups).await
+            && let Err(err) = self.policies.revert(current, &cgroups).await
         {
             warn!("failed to revert policy={current:?} for pid={pid}: {err}");
             return;
@@ -189,7 +189,7 @@ where
             app_state.applied = None;
         }
 
-        match self.tier_policies.apply(next, &cgroups).await {
+        match self.policies.apply(next, &cgroups).await {
             Ok(()) => {
                 debug!("pid={pid} applied policy={next:?}");
                 if let Some(app_state) = self.app_states.get_mut(&pid) {
@@ -207,7 +207,7 @@ where
 
         if let Some(current) = app_state.applied {
             let cgroups = app_state.cgroups.clone();
-            if let Err(err) = self.tier_policies.revert(current, &cgroups).await {
+            if let Err(err) = self.policies.revert(current, &cgroups).await {
                 warn!("failed to revert policy={current:?} while removing pid={pid}: {err}");
             }
         }

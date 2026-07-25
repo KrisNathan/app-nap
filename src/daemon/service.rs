@@ -28,6 +28,21 @@ where
     cpu_watch: CpuWatchConfig,
 }
 
+fn resolve_next_tier(
+    has_active_window: bool,
+    has_unminimized_window: bool,
+    inhibited: bool,
+    media_playing: bool,
+) -> Tier {
+    if has_active_window || inhibited {
+        Tier::Performance
+    } else if has_unminimized_window || media_playing {
+        Tier::Background
+    } else {
+        Tier::Nap
+    }
+}
+
 impl<I, M> Daemon<I, M>
 where
     I: InhibitService,
@@ -133,13 +148,12 @@ where
 
         // Focus or a hard keep-awake (inhibitor) means performance. MPRIS only
         // blocks nap; it never forces performance or clears the load state.
-        let next_tier = if has_active_window || inhibited {
-            Tier::Performance
-        } else if has_unminimized_window || media_playing {
-            Tier::Background
-        } else {
-            Tier::Nap
-        };
+        let next_tier = resolve_next_tier(
+            has_active_window,
+            has_unminimized_window,
+            inhibited,
+            media_playing,
+        );
 
         if app_state.tier != next_tier {
             debug!("pid={pid} tier {:?} -> {next_tier:?}", app_state.tier);
@@ -315,4 +329,62 @@ where
             }
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn active_window_or_inhibitor_yields_performance() {
+        assert_eq!(
+            resolve_next_tier(true, false, false, false),
+            Tier::Performance
+        );
+        assert_eq!(
+            resolve_next_tier(false, false, true, false),
+            Tier::Performance
+        );
+    }
+
+    #[test]
+    fn unminimized_window_or_media_yields_background() {
+        assert_eq!(
+            resolve_next_tier(false, true, false, false),
+            Tier::Background
+        );
+        assert_eq!(
+            resolve_next_tier(false, false, false, true),
+            Tier::Background
+        );
+    }
+
+    #[test]
+    fn minimized_inactive_with_no_media_yields_nap() {
+        assert_eq!(
+            resolve_next_tier(false, false, false, false),
+            Tier::Nap
+        );
+    }
+
+    #[test]
+    fn active_overrides_media_and_inactive_windows() {
+        assert_eq!(
+            resolve_next_tier(true, false, false, true),
+            Tier::Performance
+        );
+        assert_eq!(
+            resolve_next_tier(true, true, false, false),
+            Tier::Performance
+        );
+    }
+
+    #[test]
+    fn inhibitor_overrides_media_and_unminimized() {
+        assert_eq!(
+            resolve_next_tier(false, true, true, true),
+            Tier::Performance
+        );
+    }
+
 }

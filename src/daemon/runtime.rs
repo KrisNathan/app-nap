@@ -347,52 +347,49 @@ where
 mod tests {
     use super::*;
 
+    fn check_next_tier_resolution(
+        has_active_window: bool,
+        has_unminimized_window: bool,
+        inhibited: bool,
+        media_playing: bool,
+        expected_tier: Tier,
+    ) {
+        assert_eq!(
+            resolve_next_tier(
+                has_active_window,
+                has_unminimized_window,
+                inhibited,
+                media_playing
+            ),
+            expected_tier
+        );
+    }
+
     #[test]
     fn active_window_or_inhibitor_yields_performance() {
-        assert_eq!(
-            resolve_next_tier(true, false, false, false),
-            Tier::Performance
-        );
-        assert_eq!(
-            resolve_next_tier(false, false, true, false),
-            Tier::Performance
-        );
+        check_next_tier_resolution(true, false, false, false, Tier::Performance);
+        check_next_tier_resolution(false, false, true, false, Tier::Performance);
     }
 
     #[test]
     fn unminimized_window_or_media_yields_background() {
-        assert_eq!(
-            resolve_next_tier(false, true, false, false),
-            Tier::Background
-        );
-        assert_eq!(
-            resolve_next_tier(false, false, false, true),
-            Tier::Background
-        );
+        check_next_tier_resolution(false, true, false, false, Tier::Background);
+        check_next_tier_resolution(false, false, false, true, Tier::Background);
     }
 
     #[test]
     fn minimized_inactive_with_no_media_yields_nap() {
-        assert_eq!(resolve_next_tier(false, false, false, false), Tier::Nap);
+        check_next_tier_resolution(false, false, false, false, Tier::Nap);
     }
 
     #[test]
     fn active_overrides_media_and_inactive_windows() {
-        assert_eq!(
-            resolve_next_tier(true, false, false, true),
-            Tier::Performance
-        );
-        assert_eq!(
-            resolve_next_tier(true, true, false, false),
-            Tier::Performance
-        );
+        check_next_tier_resolution(true, false, false, true, Tier::Performance);
+        check_next_tier_resolution(true, true, false, false, Tier::Performance);
     }
 
     #[test]
     fn inhibitor_overrides_media_and_unminimized() {
-        assert_eq!(
-            resolve_next_tier(false, true, true, true),
-            Tier::Performance
-        );
+        check_next_tier_resolution(false, true, true, true, Tier::Performance);
     }
 }

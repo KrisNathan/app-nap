@@ -91,17 +91,6 @@ fn cpu_set(cpu: usize, cpuset: &mut cpu_set_t) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-fn cpu_is_set(cpu: usize, cpuset: &cpu_set_t) -> io::Result<bool> {
-    if cpu >= cpu_count() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("cpu id {cpu} exceeds cpu_set_t capacity"),
-        ));
-    }
-    Ok(unsafe { libc::CPU_ISSET(cpu, cpuset) })
-}
-
 /// Parse a kernel CPU-list string (e.g. `"0-3,8-11,15"`) into a `cpu_set_t`.
 fn parse_cpu_list(raw: &str) -> io::Result<cpu_set_t> {
     let mut cpuset = empty_cpuset();
@@ -147,52 +136,56 @@ fn read_cpuset(path: &str) -> io::Result<cpu_set_t> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cpu_is_set, parse_cpu_list};
+    use super::parse_cpu_list;
+
+    #[track_caller]
+    fn check_cpu_list(raw: &str, expected: &[usize]) {
+        let set = parse_cpu_list(raw).unwrap();
+        let max = expected
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        for cpu in 0..=max {
+            let want = expected.contains(&cpu);
+            let got = unsafe { libc::CPU_ISSET(cpu, &set) };
+            assert_eq!(got, want, "cpu {cpu}");
+        }
+    }
+
+    #[track_caller]
+    fn check_cpu_list_err(raw: &str) {
+        assert!(parse_cpu_list(raw).is_err(), "{raw:?}");
+    }
 
     #[test]
     fn parses_single_cpu() {
-        let set = parse_cpu_list("4").unwrap();
-        assert!(cpu_is_set(4, &set).unwrap());
-        assert!(!cpu_is_set(3, &set).unwrap());
-        assert!(!cpu_is_set(5, &set).unwrap());
+        check_cpu_list("4", &[4]);
     }
 
     #[test]
     fn parses_range() {
-        let set = parse_cpu_list("4-7").unwrap();
-        for id in 4..=7 {
-            assert!(cpu_is_set(id, &set).unwrap(), "cpu {id} should be set");
-        }
-        assert!(!cpu_is_set(3, &set).unwrap());
-        assert!(!cpu_is_set(8, &set).unwrap());
+        check_cpu_list("4-7", &[4, 5, 6, 7]);
     }
 
     #[test]
     fn parses_mixed_list() {
-        let set = parse_cpu_list("0-3,8-11,15").unwrap();
-        for id in [0, 1, 2, 3, 8, 9, 10, 11, 15] {
-            assert!(cpu_is_set(id, &set).unwrap(), "cpu {id} should be set");
-        }
-        for id in [4, 5, 6, 7, 12, 13, 14, 16] {
-            assert!(!cpu_is_set(id, &set).unwrap(), "cpu {id} should not be set");
-        }
+        check_cpu_list("0-3,8-11,15", &[0, 1, 2, 3, 8, 9, 10, 11, 15]);
     }
 
     #[test]
     fn parses_whitespace_and_trailing_newline() {
-        let set = parse_cpu_list(" 4 - 7 \n").unwrap();
-        for id in 4..=7 {
-            assert!(cpu_is_set(id, &set).unwrap());
-        }
+        check_cpu_list(" 4 - 7 \n", &[4, 5, 6, 7]);
     }
 
     #[test]
     fn rejects_reversed_range() {
-        assert!(parse_cpu_list("7-4").is_err());
+        check_cpu_list_err("7-4");
     }
 
     #[test]
     fn rejects_non_numeric() {
-        assert!(parse_cpu_list("a-b").is_err());
+        check_cpu_list_err("a-b");
     }
 }

@@ -53,7 +53,6 @@ pub struct AppState {
     pub tier: Tier,
     /// Last successfully applied effective (tier, load) policy.
     /// Stays behind on failure so the next reconcile retries the transition.
-    /// Cleared when the related cgroup set changes so apply runs against the new units.
     pub applied: Option<PolicyKey>,
     pub load_tracker: LoadTracker,
 }

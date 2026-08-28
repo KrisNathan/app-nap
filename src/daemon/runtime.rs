@@ -134,18 +134,22 @@ where
         };
 
         // App units can re-split (e.g. Chromium); refresh paths on reconcile.
-        // A changed set invalidates the sample baseline and the applied
-        // marker so the current policy is applied to the new units.
-        match cgroup::get_related_cgroups(pid) {
+        // A changed set invalidates the sample baseline and forces reapply
+        // onto the new units without dropping the last applied policy (so a
+        // concurrent tier change still reverts).
+        let cgroups_changed = match cgroup::get_related_cgroups(pid) {
             Ok(cgroups) if cgroups != app_state.cgroups => {
                 debug!("refreshed cgroups for pid={pid}: {cgroups:?}");
                 app_state.cgroups = cgroups;
                 app_state.load_tracker.clear_baseline();
-                app_state.applied = None; // force reapply
+                true
             }
-            Ok(_) => {}
-            Err(err) => warn!("failed to refresh cgroups for pid={pid}: {err}"),
-        }
+            Ok(_) => false,
+            Err(err) => {
+                warn!("failed to refresh cgroups for pid={pid}: {err}");
+                false
+            }
+        };
 
         let inhibited = match self.inhibit_service.is_inhibiting(&app_state.cgroups).await {
             Ok(v) => v,
@@ -181,22 +185,25 @@ where
         }
         app_state.tier = next_tier;
 
-        self.apply_effective_policy(pid).await;
+        self.apply_effective_policy(pid, cgroups_changed).await;
     }
 
-    /// Revert/apply only when the effective (tier, load) policy changes.
-    async fn apply_effective_policy(&mut self, pid: pid_t) {
+    /// Revert/apply when the effective (tier, load) policy changes.
+    /// `reapply` if true will force policy reapply.
+    /// Revert still runs only when switching policies.
+    async fn apply_effective_policy(&mut self, pid: pid_t, reapply: bool) {
         let Some(app_state) = self.app_states.get_mut(&pid) else {
             return;
         };
         let Some(next) = self.policies.resolve(app_state.tier, app_state.load()) else {
             return;
         };
-        if app_state.applied == Some(next) {
+        if app_state.applied == Some(next) && !reapply {
             return;
         }
 
         if let Some(current) = app_state.applied
+            && current != next
             && let Err(err) = self.policies.revert(current, &app_state.cgroups).await
         {
             warn!("failed to revert policy={current:?} for pid={pid}: {err}");
@@ -339,7 +346,7 @@ where
             };
             if let Some(load) = flipped {
                 debug!("pid={pid} load -> {load:?}");
-                self.apply_effective_policy(pid).await;
+                self.apply_effective_policy(pid, false).await;
             }
         }
     }

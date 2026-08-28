@@ -134,12 +134,14 @@ where
         };
 
         // App units can re-split (e.g. Chromium); refresh paths on reconcile.
-        // A changed set invalidates the sample baseline.
+        // A changed set invalidates the sample baseline and the applied
+        // marker so the current policy is applied to the new units.
         match cgroup::get_related_cgroups(pid) {
             Ok(cgroups) if cgroups != app_state.cgroups => {
                 debug!("refreshed cgroups for pid={pid}: {cgroups:?}");
                 app_state.cgroups = cgroups;
                 app_state.load_tracker.clear_baseline();
+                app_state.applied = None; // force reapply
             }
             Ok(_) => {}
             Err(err) => warn!("failed to refresh cgroups for pid={pid}: {err}"),

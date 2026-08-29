@@ -6,6 +6,7 @@ BIN_DIR="${HOME}/.local/bin"
 CONFIG_DIR="${HOME}/.config/app-nap"
 SYSTEMD_USER_DIR="${HOME}/.config/systemd/user"
 BIN_PATH="${BIN_DIR}/app-nap"
+APP_NAP_LS_PATH="${BIN_DIR}/app-nap-ls"
 SERVICE_PATH="${SYSTEMD_USER_DIR}/app-nap.service"
 CONFIG_PATH="${CONFIG_DIR}/app-nap.toml"
 
@@ -25,6 +26,7 @@ cargo build --release --manifest-path "${ROOT_DIR}/Cargo.toml"
 
 mkdir -p "${BIN_DIR}" "${CONFIG_DIR}" "${SYSTEMD_USER_DIR}"
 install -m 0755 "${ROOT_DIR}/target/release/app-nap" "${BIN_PATH}"
+install -m 0755 "${ROOT_DIR}/scripts/app-nap-ls.sh" "${APP_NAP_LS_PATH}"
 
 if [[ ! -f "${CONFIG_PATH}" ]]; then
   install -m 0644 "${ROOT_DIR}/example/app-nap.toml" "${CONFIG_PATH}"

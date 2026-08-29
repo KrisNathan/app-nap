@@ -2,6 +2,7 @@
 set -euo pipefail
 
 BIN_PATH="${HOME}/.local/bin/app-nap"
+APP_NAP_LS_PATH="${HOME}/.local/bin/app-nap-ls"
 CONFIG_DIR="${HOME}/.config/app-nap"
 CONFIG_PATH="${CONFIG_DIR}/app-nap.toml"
 SYSTEMD_USER_DIR="${HOME}/.config/systemd/user"
@@ -18,7 +19,7 @@ if command -v systemctl >/dev/null 2>&1; then
   systemctl --user daemon-reload
 fi
 
-rm -f "${BIN_PATH}"
+rm -f "${BIN_PATH}" "${APP_NAP_LS_PATH}"
 
 if [[ -f "${CONFIG_PATH}" ]] && cmp -s "${CONFIG_PATH}" "${DEFAULT_CONFIG}"; then
   rm -f "${CONFIG_PATH}"

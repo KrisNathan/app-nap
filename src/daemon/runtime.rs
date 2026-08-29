@@ -1,0 +1,404 @@
+use std::{collections::HashMap, time::Duration};
+
+use libc::pid_t;
+use log::{debug, warn};
+use tokio::{
+    sync::{mpsc::Receiver, oneshot},
+    time::MissedTickBehavior,
+};
+
+use crate::{
+    config::model::CpuLoadPollingConfig,
+    daemon::{
+        app_state::{AppState, Tier, WindowState},
+        channel_event::ChannelEvent,
+        policies::Policies,
+        snapshot::AppSnapshot,
+    },
+    inhibit::InhibitService,
+    media::MediaService,
+    systemd::{cgroup, cpu_stat, proc},
+};
+
+pub struct Daemon<I, M>
+where
+    I: InhibitService,
+    M: MediaService,
+{
+    app_states: HashMap<pid_t, AppState>, // key: app pid provided by kwin
+    policies: Policies,
+    inhibit_service: I,
+    media_service: M,
+    cpu_load_polling: CpuLoadPollingConfig,
+}
+
+fn resolve_next_tier(
+    has_active_window: bool,
+    has_unminimized_window: bool,
+    inhibited: bool,
+    media_playing: bool,
+) -> Tier {
+    if has_active_window || inhibited {
+        Tier::Performance
+    } else if has_unminimized_window || media_playing {
+        Tier::Background
+    } else {
+        Tier::Nap
+    }
+}
+
+impl<I, M> Daemon<I, M>
+where
+    I: InhibitService,
+    M: MediaService,
+{
+    pub fn new(
+        policies: Policies,
+        inhibit_service: I,
+        media_service: M,
+        cpu_load_polling: CpuLoadPollingConfig,
+    ) -> Self {
+        Self {
+            app_states: HashMap::new(),
+            policies,
+            inhibit_service,
+            media_service,
+            cpu_load_polling,
+        }
+    }
+
+    pub async fn run(&mut self, mut rx: Receiver<ChannelEvent>) {
+        let mut ticker = tokio::time::interval(Duration::from_millis(
+            self.cpu_load_polling.interval_ms.max(1),
+        ));
+        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                event = rx.recv() => {
+                    let Some(event) = event else { return };
+                    self.handle_event(event).await;
+                }
+                // The timer only ticks while cpu-load polling has targets;
+                // otherwise the daemon is fully event-driven.
+                _ = ticker.tick(), if self.has_cpu_load_apps() => {
+                    self.cpu_load_tick().await;
+                }
+            }
+        }
+    }
+
+    async fn handle_event(&mut self, event: ChannelEvent) {
+        match event {
+            ChannelEvent::AddWindow { window_id, pid } => self.add_window(&window_id, pid).await,
+            ChannelEvent::RemoveWindow { window_id, pid } => {
+                self.remove_window(&window_id, pid).await
+            }
+            ChannelEvent::MinimizedChanged {
+                window_id,
+                pid,
+                minimized,
+            } => self.minimized_changed(&window_id, pid, minimized).await,
+            ChannelEvent::ActiveChanged {
+                window_id,
+                pid,
+                active,
+            } => self.active_changed(&window_id, pid, active).await,
+            ChannelEvent::ListApps { reply } => self.list_apps(reply),
+        }
+    }
+
+    /// Answer a state query. Sorted by pid so repeated queries read the same
+    /// way; the `HashMap` order is not stable.
+    fn list_apps(&self, reply: oneshot::Sender<Vec<AppSnapshot>>) {
+        let mut apps: Vec<AppSnapshot> = self
+            .app_states
+            .iter()
+            .map(|(pid, app_state)| AppSnapshot::new(*pid, app_state))
+            .collect();
+        apps.sort_by_key(|app| app.pid);
+
+        // The caller may already have given up; nothing to recover here.
+        let _ = reply.send(apps);
+    }
+
+    /// Background/nap apps are polled for cpu load; performance apps are not.
+    fn has_cpu_load_apps(&self) -> bool {
+        self.app_states
+            .values()
+            .any(|app| matches!(app.tier, Tier::Background | Tier::Nap))
+    }
+
+    async fn reconcile_state(&mut self, pid: pid_t) {
+        let Some(app_state) = self.app_states.get_mut(&pid) else {
+            return;
+        };
+
+        // App units can re-split (e.g. Chromium); refresh paths on reconcile.
+        // A changed set invalidates the sample baseline and forces reapply
+        // onto the new units without dropping the last applied policy (so a
+        // concurrent tier change still reverts).
+        let cgroups_changed = match cgroup::get_related_cgroups(pid) {
+            Ok(cgroups) if cgroups != app_state.cgroups => {
+                debug!("refreshed cgroups for pid={pid}: {cgroups:?}");
+                app_state.cgroups = cgroups;
+                app_state.load_tracker.clear_baseline();
+                true
+            }
+            Ok(_) => false,
+            Err(err) => {
+                warn!("failed to refresh cgroups for pid={pid}: {err}");
+                false
+            }
+        };
+
+        let inhibited = match self.inhibit_service.is_inhibiting(&app_state.cgroups).await {
+            Ok(v) => v,
+            Err(err) => {
+                warn!("failed to check inhibitors for pid={pid}: {err}");
+                false
+            }
+        };
+        let media_playing = match self.media_service.is_playing(&app_state.cgroups).await {
+            Ok(v) => v,
+            Err(err) => {
+                warn!("failed to check media playback for pid={pid}: {err}");
+                false
+            }
+        };
+        let has_active_window = app_state.windows.values().any(|window| window.active);
+        let has_unminimized_window = app_state.windows.values().any(|window| !window.minimized);
+
+        // Focus or a hard keep-awake (inhibitor) means performance. MPRIS only
+        // blocks nap; it never forces performance or clears the load state.
+        let next_tier = resolve_next_tier(
+            has_active_window,
+            has_unminimized_window,
+            inhibited,
+            media_playing,
+        );
+
+        if app_state.tier != next_tier {
+            debug!("pid={pid} tier {:?} -> {next_tier:?}", app_state.tier);
+        }
+        if next_tier == Tier::Performance {
+            app_state.load_tracker.reset();
+        }
+        app_state.tier = next_tier;
+
+        self.apply_effective_policy(pid, cgroups_changed).await;
+    }
+
+    /// Revert/apply when the effective (tier, load) policy changes.
+    /// `reapply` if true will force policy reapply.
+    /// Revert still runs only when switching policies.
+    async fn apply_effective_policy(&mut self, pid: pid_t, reapply: bool) {
+        let Some(app_state) = self.app_states.get_mut(&pid) else {
+            return;
+        };
+        let Some(next) = self.policies.resolve(app_state.tier, app_state.load()) else {
+            return;
+        };
+        if app_state.applied == Some(next) && !reapply {
+            return;
+        }
+
+        if let Some(current) = app_state.applied
+            && current != next
+            && let Err(err) = self.policies.revert(current, &app_state.cgroups).await
+        {
+            warn!("failed to revert policy={current:?} for pid={pid}: {err}");
+            return;
+        }
+        app_state.applied = None;
+
+        match self.policies.apply(next, &app_state.cgroups).await {
+            Ok(()) => {
+                debug!("pid={pid} applied policy={next:?}");
+                app_state.applied = Some(next);
+            }
+            Err(err) => warn!("failed to apply policy={next:?} for pid={pid}: {err}"),
+        }
+    }
+
+    async fn drop_app_state(&mut self, pid: pid_t) {
+        let Some(app_state) = self.app_states.get(&pid) else {
+            return;
+        };
+
+        if let Some(current) = app_state.applied {
+            let cgroups = app_state.cgroups.clone();
+            if let Err(err) = self.policies.revert(current, &cgroups).await {
+                warn!("failed to revert policy={current:?} while removing pid={pid}: {err}");
+            }
+        }
+        self.app_states.remove(&pid);
+    }
+
+    pub async fn add_window(&mut self, window_id: &str, pid: pid_t) {
+        let cgroups = match cgroup::get_related_cgroups(pid) {
+            Ok(cgroups) => cgroups,
+            Err(err) => {
+                warn!("failed to resolve cgroups for pid={pid}: {err}");
+                return;
+            }
+        };
+        let app_state = self.app_states.entry(pid).or_insert_with(|| {
+            // Reporting only, so a dead pid just yields a nameless app.
+            AppState::new(proc::process_comm(pid).unwrap_or_default(), cgroups)
+        });
+        app_state
+            .windows
+            .entry(window_id.to_string())
+            .or_insert(WindowState {
+                minimized: false,
+                active: true,
+            });
+
+        self.reconcile_state(pid).await;
+    }
+
+    pub async fn remove_window(&mut self, window_id: &str, pid: pid_t) {
+        let Some(app_state) = self.app_states.get_mut(&pid) else {
+            warn!("remove window for unknown pid: window_id={window_id} pid={pid}");
+            return;
+        };
+
+        app_state.windows.remove(window_id);
+
+        if app_state.windows.is_empty() {
+            self.drop_app_state(pid).await;
+            return;
+        }
+
+        self.reconcile_state(pid).await
+    }
+
+    pub async fn minimized_changed(&mut self, window_id: &str, pid: pid_t, minimized: bool) {
+        let Some(app_state) = self.app_states.get_mut(&pid) else {
+            warn!(
+                "minimized changed for unknown pid: window_id={window_id} pid={pid} minimized={minimized}"
+            );
+            return;
+        };
+
+        let Some(window) = app_state.windows.get_mut(window_id) else {
+            warn!(
+                "minimized changed for unknown window: window_id={window_id} pid={pid} minimized={minimized}"
+            );
+            return;
+        };
+
+        window.minimized = minimized;
+        self.reconcile_state(pid).await
+    }
+
+    pub async fn active_changed(&mut self, window_id: &str, pid: pid_t, active: bool) {
+        let Some(app_state) = self.app_states.get_mut(&pid) else {
+            warn!(
+                "active changed for unknown pid: window_id={window_id} pid={pid} active={active}"
+            );
+            return;
+        };
+        let Some(window) = app_state.windows.get_mut(window_id) else {
+            warn!(
+                "active changed for unknown window: window_id={window_id} pid={pid} active={active}"
+            );
+            return;
+        };
+
+        window.active = active;
+        self.reconcile_state(pid).await
+    }
+
+    async fn cpu_load_tick(&mut self) {
+        let pids: Vec<pid_t> = self
+            .app_states
+            .iter()
+            .filter(|(_, app)| matches!(app.tier, Tier::Background | Tier::Nap))
+            .map(|(pid, _)| *pid)
+            .collect();
+
+        for pid in pids {
+            let flipped = {
+                let Some(app_state) = self.app_states.get_mut(&pid) else {
+                    continue;
+                };
+                let sample = match cpu_stat::sample_cgroups(&app_state.cgroups) {
+                    Ok(sample) => sample,
+                    Err(err) => {
+                        warn!("failed to sample cpu.stat for pid={pid}: {err}");
+                        continue;
+                    }
+                };
+                let flipped = app_state
+                    .load_tracker
+                    .observe(sample, &self.cpu_load_polling);
+                debug!(
+                    "pid={pid} tier={:?} load={:?} usage={:.3} throttle={:.3} queued={:?} ttl={}",
+                    app_state.tier,
+                    app_state.load_tracker.load,
+                    app_state.load_tracker.usage,
+                    app_state.load_tracker.throttle,
+                    app_state.load_tracker.queued_load,
+                    app_state.load_tracker.ttl,
+                );
+                flipped
+            };
+            if let Some(load) = flipped {
+                debug!("pid={pid} load -> {load:?}");
+                self.apply_effective_policy(pid, false).await;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn check_next_tier_resolution(
+        has_active_window: bool,
+        has_unminimized_window: bool,
+        inhibited: bool,
+        media_playing: bool,
+        expected_tier: Tier,
+    ) {
+        assert_eq!(
+            resolve_next_tier(
+                has_active_window,
+                has_unminimized_window,
+                inhibited,
+                media_playing
+            ),
+            expected_tier
+        );
+    }
+
+    #[test]
+    fn active_window_or_inhibitor_yields_performance() {
+        check_next_tier_resolution(true, false, false, false, Tier::Performance);
+        check_next_tier_resolution(false, false, true, false, Tier::Performance);
+    }
+
+    #[test]
+    fn unminimized_window_or_media_yields_background() {
+        check_next_tier_resolution(false, true, false, false, Tier::Background);
+        check_next_tier_resolution(false, false, false, true, Tier::Background);
+    }
+
+    #[test]
+    fn minimized_inactive_with_no_media_yields_nap() {
+        check_next_tier_resolution(false, false, false, false, Tier::Nap);
+    }
+
+    #[test]
+    fn active_overrides_media_and_inactive_windows() {
+        check_next_tier_resolution(true, false, false, true, Tier::Performance);
+        check_next_tier_resolution(true, true, false, false, Tier::Performance);
+    }
+
+    #[test]
+    fn inhibitor_overrides_media_and_unminimized() {
+        check_next_tier_resolution(false, true, true, true, Tier::Performance);
+    }
+}

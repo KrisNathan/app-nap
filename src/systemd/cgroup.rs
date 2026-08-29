@@ -1,5 +1,8 @@
 use libc::pid_t;
-use std::{collections::HashSet, fs, io};
+use std::{
+    collections::{BTreeSet, HashSet},
+    fs, io,
+};
 
 use super::proc::ancestor_pids_until_systemd;
 
@@ -31,21 +34,19 @@ pub fn systemd_unit_name(cgroup: &str) -> Option<&str> {
 /// Collect distinct app cgroups in `pid`'s process tree.
 /// Trimmed, compatible with systemd cgroup naming.
 ///
-/// Walks ancestors until systemd and returns each unique trimmed app-scope
-/// path. Covers Chromium-style splits where the window pid and its children
-/// live in different units.
+/// Walks ancestors until systemd and returns each unique trimmed app-scope path
+/// Sorted for easy comparison.
 pub fn get_related_cgroups(pid: pid_t) -> io::Result<Vec<String>> {
-    let mut related = HashSet::new();
+    let mut related = BTreeSet::new(); // btree = sorted; set = deduplicated
 
     for ancestor in ancestor_pids_until_systemd(pid)? {
         let Ok(cgroup) = get_process_cgroup(ancestor) else {
             continue;
         };
         let trimmed = trim_hierarchy_id(&cgroup).to_owned();
-        if !is_app_scope_cgroup(&trimmed) || related.contains(&trimmed) {
-            continue;
+        if is_app_scope_cgroup(&trimmed) {
+            related.insert(trimmed);
         }
-        related.insert(trimmed);
     }
 
     if related.is_empty() {

@@ -5,19 +5,25 @@
    `RemoveWindow`). The script does not decide nap policy.
 2. The daemon groups windows by PID, resolves related app cgroup(s), and
    reconciles that PID into one tier:
-   - **Performance**: at least one window is active.
+   - **Performance**: at least one window is active, or an idle inhibitor is
+     active.
    - **Background**: no active window, but at least one window is unminimized
-     (or all windows are minimized but media/inhibit keeps the app awake).
+     (or all windows are minimized but media playback keeps the app awake).
    - **Nap**: all windows are minimized, and neither media playback nor an
      idle inhibitor applies.
-3. Each tier runs its configured action list against the app's cgroup(s)
-   (e.g. `systemd-cpu-weight`, `systemd-cpu-quota`, `signal`, `systemd-freeze`,
-   `ecore`). On tier change the daemon reverts the previous tier, then applies
-   the next. It only reverts what it previously applied.
+3. Background and nap apps additionally carry a CPU load sub-state
+   (busy/idle) from a periodic `cpu.stat` poll, so the effective policy is
+   the (tier, load) pair — `[tiers.x.idle]` / `[tiers.x.busy]` when
+   configured, otherwise the tier's base actions. Each policy runs its
+   configured action list against the app's cgroup(s) (e.g.
+   `systemd-cpu-weight`, `systemd-cpu-quota`, `signal`, `systemd-freeze`,
+   `ecore`). On policy change the daemon reverts the previous policy, then
+   applies the next. It only reverts what it previously applied.
 4. A minimized/frozen window can still be unminimized or focused; KWin still
    emits state changes, and the daemon resumes via the normal reconcile path.
-5. Failed tier transitions are left as the last successfully applied tier and
-   retried on the next window-state event (not in a busy loop).
+5. Failed policy transitions are left as the last successfully applied policy
+   and retried on the next window-state event or load flip (not in a busy
+   loop).
 
 ## Grouping Windows Into an "App"
 
@@ -29,9 +35,12 @@ Two layers:
    map + cached cgroups + current tier).
 
 2. **Action / media / inhibit scope = related app cgroup(s)**  
-   On first `AddWindow` for a PID, the daemon resolves which systemd app units
-   belong to that launch tree and caches those cgroup paths on `AppState`.
-   Tier actions, MPRIS matching, and idle-inhibitor matching all use that set.
+   The daemon resolves which systemd app units belong to that launch tree and
+   caches those cgroup paths on `AppState`, re-resolving them on every
+   reconcile so unit re-splits (Chromium-style) are picked up. A changed set
+   invalidates the load sample baseline and forces a policy reapply onto the
+   new units. Tier actions, MPRIS matching, and idle-inhibitor matching all
+   use that set.
 
 ### PID climbing
 
@@ -51,15 +60,15 @@ paths that look like app units under `app.slice/`:
 - ends with `.scope` or `.service`
 - path contains `/app.slice/`
 
-Deduplicate. That list is the app's related cgroups (often one unit; sometimes
-two for Chromium splits).
+Deduplicate and sort (for stable comparisons). That list is the app's related
+cgroups (often one unit; sometimes two for Chromium splits).
 
 ### Live procs
 
 When applying signal/ecore (or matching media by PID), expand each cached
 cgroup via `/sys/fs/cgroup<cgroup>/cgroup.procs` and union the PIDs. Proc
 membership is read live at action/check time, not frozen into `AppState` —
-only the cgroup path list is cached from first registration.
+only the cgroup path list is cached, and it is refreshed on every reconcile.
 
 ## Handling Media Playback
 
@@ -95,9 +104,32 @@ $ qdbus org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.GetConne
 KDE PowerDevil `org.kde.Solid.PowerManagement.PolicyAgent` → `ListInhibitions`
 returns `aas` (`[who, why]` lists). Match `who` (desktop/Flatpak app ID) as a
 substring of `/proc/<pid>/cgroup` (the systemd unit name embeds the app ID).
-Do not match against `/proc/<pid>/comm`. An active matching inhibitor is a hard
-do-not-nap signal (Background instead of Nap; thaw on next reconcile if already
-napped). Unmatched inhibitors are ignored.
+Do not match against `/proc/<pid>/comm`. An active matching inhibitor is a
+hard do-not-throttle signal: it forces the Performance tier regardless of
+window state (unlike media playback, which only blocks Nap). Unmatched
+inhibitors are ignored.
+
+## CPU Load Polling
+
+Background/nap apps are polled every `cpu_load_polling.interval_ms` (default
+10s); the timer is disarmed while no app is on those tiers, and entering
+Performance resets an app's tracker. Each poll reads
+`/sys/fs/cgroup<cgroup>/cpu.stat` for every related cgroup and diffs against
+the app's previous sample:
+
+- **usage** = summed `usage_usec` delta / elapsed, in core-equivalents.
+- **throttle** = max per-cgroup `throttled_usec` delta / elapsed. This is the
+  busy escape hatch for apps under `CPUQuota`, whose usage cannot climb past
+  the cap no matter how busy they are.
+
+A busy/idle hysteresis turns those rates into a load sub-state: dual
+thresholds with a dead band (`idle_threshold` / `busy_threshold`), throttle
+limits (`throttle_idle_max` / `throttle_busy`), and a TTL per direction
+(`ttl_idle` / `ttl_busy` poll ticks) so a candidate must persist before it
+applies. Cold start is busy and the first sample only sets the baseline.
+
+Apply/revert runs only when the effective (tier, load) policy changes, or
+when the app's cgroup set changes (reapply onto the new units).
 
 ## Handling Apps with Multiple Windows
 
@@ -126,12 +158,32 @@ Methods:
 - `RemoveWindow(s window_id, i pid)`
 - `MinimizedChanged(s window_id, i pid, b minimized)`
 - `ActiveChanged(s window_id, i pid, b active)`
+- `ListApps() -> a(issssddasa(sbb))`
 
 ```sh
 busctl --user call dev.appnap.AppNap /dev/appnap/AppNap dev.appnap.AppNap1 AddWindow si "random-uuid" 1234
 busctl --user call dev.appnap.AppNap /dev/appnap/AppNap dev.appnap.AppNap1 MinimizedChanged sib "random-uuid" 1234 true
 busctl --user call dev.appnap.AppNap /dev/appnap/AppNap dev.appnap.AppNap1 ActiveChanged sib "random-uuid" 1234 false
+busctl --user --json=short call dev.appnap.AppNap /dev/appnap/AppNap dev.appnap.AppNap1 ListApps
 ```
+
+## Reading Daemon State
+
+The four window methods are one-way: the KWin script fires them and the event
+loop owns all state afterwards. `ListApps` is the read side of that loop, so it
+cannot answer from the D-Bus object itself — the handler pushes a
+`ChannelEvent::ListApps` carrying a `oneshot` sender, the event loop projects
+every `AppState` into an `AppSnapshot`, and the reply travels back down that
+channel. State stays single-owner, and the query is serialized against event
+handling instead of racing it.
+
+Per app: pid, `comm`, tier, load, applied policy (empty until the first
+successful apply), last sampled usage and throttle in core-equivalents, related
+cgroups, and every tracked window. Apps are sorted by pid and windows by id, so
+repeated queries read the same way.
+
+`scripts/app-nap-ls.sh` (installed as `app-nap-ls`) is the CLI over this: a
+table by default, `-v` for cgroups and windows, `-j` for JSON.
 
 KWin Scripting Console:
 

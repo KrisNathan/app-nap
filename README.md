@@ -11,7 +11,8 @@ daemon, not the script, decides when to throttle or freeze.
 The daemon groups windows by PID and resolves each PID's systemd cgroup(s). On
 every state change it reconciles the PID into one of three tiers:
 
-- **Performance**: at least one window is active.
+- **Performance**: at least one window is active, or an idle inhibitor is
+  active.
 - **Background**: no active window, but at least one window is unminimized.
 - **Nap**: all windows are minimized.
 
@@ -20,21 +21,30 @@ Two signals keep an app awake regardless of window state:
 - **Media playback**: detected via MPRIS over D-Bus. If the app is playing
   media, it stays in Background even when all windows are minimized.
 - **Idle inhibition**: detected via KDE PowerDevil's `PolicyAgent` over D-Bus.
-  Screen recording, streaming, or presentation inhibitors are a hard
-  do-not-throttle signal. The inhibitor's app ID is matched against the app's
-  cgroup path, not its process name.
+  Screen recording, streaming, or presentation inhibitors force the
+  Performance tier — a hard do-not-throttle signal. The inhibitor's app ID is
+  matched against the app's cgroup path, not its process name.
 
-Each tier runs every configured action against the app's cgroup(s). The daemon
-only reverts a nap if it previously applied one, so it never resumes a process
-it didn't freeze. Failed tier transitions are retried on the next window state
-change, not automatically.
+Background and nap apps are also polled for CPU load (every 10s by default) by
+diffing each cgroup's `cpu.stat`. A busy/idle hysteresis — dual thresholds
+with a dead band, a throttle escape hatch, and a per-direction TTL — selects a
+load sub-state, so a minimized app that is compiling gets a lighter nap
+instead of a stall. The effective policy is the (tier, load) pair:
+`[tiers.background.idle]` / `[tiers.nap.busy]` when configured, otherwise the
+tier's base actions. Performance apps are never polled.
+
+Each policy runs every configured action against the app's cgroup(s). The
+daemon only reverts a nap if it previously applied one, so it never resumes a
+process it didn't freeze. Failed transitions stay at the last successfully
+applied policy and are retried on the next window event or load flip, not in a
+busy loop.
 
 ## Configuration
 
 Configure tier actions in `~/.config/app-nap/app-nap.toml`. Active apps use the
 performance tier. Inactive but unminimized apps use the background tier. Fully
-minimized apps use the nap tier unless media playback or an idle inhibitor keeps
-them awake.
+minimized apps use the nap tier; media playback keeps a minimized app in
+background, and an idle inhibitor forces performance.
 
 ```toml
 [tiers.performance]
@@ -59,7 +69,29 @@ Each `actions` array can contain multiple actions:
 - `ecore` pins the app to efficiency cores and restores all online cores when
   reverted. It requires a hybrid CPU that exposes `/sys/devices/cpu_atom/cpus`. (only for hybrid Intel CPUs: alder lake and newer)
 
-See `example/app-nap.toml` for the complete example.
+Background and nap tiers accept an optional load variant that replaces the
+base actions while the CPU load poll reports the matching state:
+
+```toml
+[tiers.background.idle]
+actions = [
+  { type = "systemd-cpu-weight", weight = 1 },
+  { type = "ecore" },
+]
+
+[tiers.nap.busy]
+actions = [
+  { type = "systemd-cpu-quota", percent = 50 },
+  { type = "ecore" },
+]
+```
+
+Only `background.idle` and `nap.busy` are honored. The poll itself is tuned
+under `[cpu_load_polling]` (`interval_ms`, `idle_threshold`, `busy_threshold`,
+`throttle_idle_max`, `throttle_busy`, `ttl_idle`, `ttl_busy`); thresholds are
+in core-equivalents and TTLs in poll ticks.
+
+See `example/app-nap.toml` for the complete example with defaults.
 
 ## Install
 
@@ -124,7 +156,7 @@ PID     APP       TIER         LOAD  POLICY           USAGE  THROTTLE  WINDOWS
   from the last poll.
 
 `app-nap-ls -v` adds each app's cgroups and windows, and `app-nap-ls -j` prints
-the raw snapshot as JSON. It needs `busctl` and `jq`.
+the raw snapshot as JSON. It needs `busctl`, `jq`, and `awk`.
 
 The same data is available over D-Bus directly:
 

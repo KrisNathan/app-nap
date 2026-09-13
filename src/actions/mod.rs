@@ -50,7 +50,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub async fn from_config(config: ActionConfig, conn: &zbus::Connection) -> zbus::Result<Self> {
+    pub async fn from_config(config: &ActionConfig, conn: &zbus::Connection) -> zbus::Result<Self> {
         Ok(match config {
             ActionConfig::Ecore => Action::Ecore {
                 ecore: EcoreAction::new().unwrap().into(),
@@ -60,11 +60,11 @@ impl Action {
             },
             ActionConfig::SystemdCpuQuota { percent } => Action::SystemdCpuQuota {
                 systemd: SystemdDBusProxy::new(conn).await?,
-                percent,
+                percent: *percent,
             },
             ActionConfig::SystemdCpuWeight { weight } => Action::SystemdCpuWeight {
                 systemd: SystemdDBusProxy::new(conn).await?,
-                weight,
+                weight: *weight,
             },
         })
     }

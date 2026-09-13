@@ -2,12 +2,14 @@ use std::collections::HashSet;
 
 use crate::cgroup::Cgroup;
 
-pub struct WakeSignals<'a> {
-    pub powerdevil_apps: &'a HashSet<String>,
-    pub mpris_units: &'a HashSet<Cgroup>,
+#[derive(Default)]
+pub struct WakeSignals {
+    /// cgroup unit contains these app names
+    pub powerdevil_apps: HashSet<String>,
+    pub mpris_units: HashSet<Cgroup>,
 }
 
-impl WakeSignals<'_> {
+impl WakeSignals {
     pub fn is_inhibiting(&self, cgroups: &HashSet<Cgroup>) -> bool {
         cgroups.iter().any(|cg| {
             self.powerdevil_apps

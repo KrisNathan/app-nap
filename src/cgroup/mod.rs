@@ -1,7 +1,5 @@
-mod proc_util;
-mod resolve;
-
-pub use resolve::related_units;
+pub mod proc_util;
+pub mod resolve;
 
 use libc::pid_t;
 use std::fs;

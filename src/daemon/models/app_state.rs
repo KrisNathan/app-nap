@@ -1,7 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
+use libc::pid_t;
+use log::warn;
+
 use crate::{
-    cgroup::Cgroup,
+    cgroup::{Cgroup, resolve::related_units},
     config::models::{cpu_load_polling::CpuLoadPollingConfig, cpu_sample::CpuSample},
     daemon::models::{policy::Policy, tier::Tier, wake_signals::WakeSignals},
 };
@@ -19,6 +22,7 @@ pub struct Window {
 
 pub struct AppState {
     comm: String,
+    pid: pid_t,
     /// key: window id
     windows: HashMap<String, Window>,
     cgroups: HashSet<Cgroup>,
@@ -37,9 +41,10 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(comm: String) -> Self {
+    pub fn new(comm: String, pid: pid_t) -> Self {
         Self {
             comm,
+            pid,
             windows: HashMap::new(),
             cgroups: HashSet::new(),
             load: Load::Busy,
@@ -59,7 +64,7 @@ impl AppState {
 
     pub async fn on_cpu_usage_tick(
         &mut self,
-        wake_signals: &WakeSignals<'_>,
+        wake_signals: &WakeSignals,
         new_cpu_sample: CpuSample,
         config: &CpuLoadPollingConfig,
     ) {
@@ -139,7 +144,16 @@ impl AppState {
         }
     }
 
-    pub async fn reconcile_policy(&mut self, wake_signals: &WakeSignals<'_>) {
+    pub async fn reconcile_policy(&mut self, wake_signals: &WakeSignals) {
+        match related_units(self.pid) {
+            Ok(cgroups) if cgroups != self.cgroups => {
+                self.cgroups = cgroups;
+                self.last_cpu_sample = None;
+            }
+            Ok(_) => {}
+            Err(e) => warn!("failed to resolve cgroups for pid {}: {e}", self.pid),
+        }
+
         let is_any_active = self.windows.values().any(|window| window.active);
         let is_any_unminimized = self.windows.values().any(|window| !window.minimized);
         let is_inhibiting = wake_signals.is_inhibiting(&self.cgroups);
@@ -159,7 +173,7 @@ impl AppState {
         &mut self,
         window_id: &str,
         is_minimized: bool,
-        wake_signals: &WakeSignals<'_>,
+        wake_signals: &WakeSignals,
     ) {
         if let Some(window) = self.windows.get_mut(window_id)
             && window.minimized != is_minimized
@@ -173,7 +187,7 @@ impl AppState {
         &mut self,
         window_id: &str,
         is_active: bool,
-        wake_signals: &WakeSignals<'_>,
+        wake_signals: &WakeSignals,
     ) {
         if let Some(window) = self.windows.get_mut(window_id)
             && window.active != is_active
@@ -183,15 +197,15 @@ impl AppState {
         }
     }
 
-    pub async fn add_window(
+    pub async fn window_added(
         &mut self,
-        window_id: &str,
+        window_id: String,
         is_minimized: bool,
         is_active: bool,
-        wake_signals: &WakeSignals<'_>,
+        wake_signals: &WakeSignals,
     ) {
         self.windows.insert(
-            window_id.to_string(),
+            window_id,
             Window {
                 minimized: is_minimized,
                 active: is_active,
@@ -200,10 +214,16 @@ impl AppState {
         self.reconcile_policy(wake_signals).await;
     }
 
-    pub async fn remove_window(&mut self, window_id: &str, wake_signals: &WakeSignals<'_>) {
+    pub async fn window_removed(&mut self, window_id: &str, wake_signals: &WakeSignals) {
         self.windows.remove(window_id);
         if self.has_windows() {
             self.reconcile_policy(wake_signals).await;
         }
+    }
+}
+
+impl AppState {
+    pub fn get_cgroups(&self) -> &HashSet<Cgroup> {
+        &self.cgroups
     }
 }

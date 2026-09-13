@@ -13,5 +13,5 @@ pub struct Config {
     pub cpu_load_polling: CpuLoadPollingConfig,
 
     #[serde(default)]
-    pub tiers: PoliciesConfig,
+    pub policies: PoliciesConfig,
 }

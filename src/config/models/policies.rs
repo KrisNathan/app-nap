@@ -3,6 +3,11 @@ use serde::{Deserialize, Serialize};
 use crate::config::models::action::ActionConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyConfig {
+    pub actions: Vec<ActionConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PoliciesConfig {
     pub performance: PolicyConfig,
     pub background_idle: PolicyConfig,
@@ -39,9 +44,4 @@ impl Default for PoliciesConfig {
             },
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PolicyConfig {
-    actions: Vec<ActionConfig>,
 }

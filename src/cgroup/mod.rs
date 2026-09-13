@@ -1,3 +1,8 @@
+mod proc_util;
+mod resolve;
+
+pub use resolve::related_units;
+
 use libc::pid_t;
 use std::fs;
 use std::hash::Hash;

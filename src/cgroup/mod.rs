@@ -1,3 +1,4 @@
+pub mod cpu_stat;
 pub mod proc_util;
 pub mod resolve;
 
@@ -5,6 +6,8 @@ use libc::pid_t;
 use std::fs;
 use std::hash::Hash;
 use std::io;
+
+use crate::cgroup::cpu_stat::CpuStat;
 
 // This doesn't warrant for a macro.
 
@@ -123,6 +126,10 @@ impl Cgroup {
             .map(String::from)
             .filter_map(|line| line.trim().parse::<pid_t>().ok())
             .collect())
+    }
+
+    pub fn get_cpu_stat(&self) -> io::Result<CpuStat> {
+        cpu_stat::get_cpu_stat(self.full.0.as_str())
     }
 }
 

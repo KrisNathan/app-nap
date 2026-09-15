@@ -4,7 +4,6 @@ use crate::config::models::{cpu_load_polling::CpuLoadPollingConfig, policies::Po
 
 pub mod action;
 pub mod cpu_load_polling;
-pub mod cpu_sample;
 pub mod policies;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

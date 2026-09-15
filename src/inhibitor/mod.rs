@@ -1,3 +1,2 @@
-pub trait Inhibitor {
-    fn is_inhibiting() -> bool;
-}
+pub mod mpris;
+pub mod powerdevil;

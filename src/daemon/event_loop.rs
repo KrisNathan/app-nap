@@ -22,14 +22,52 @@ impl EventLoop {
                     let Some(event) = event else { return };
                     self.handle_event(event).await;
                 }
-                // The timer only ticks while cpu-load polling has targets;
+                // The timer only ticks while cpu-load polling has targets
                 // otherwise the daemon is fully event-driven.
-                _ = self.cpu_tick.tick(), if self.has_cpu_load_apps() => {
+                _ = self.cpu_tick.tick(), if self.daemon.has_polled_apps() => {
                     self.handle_cpu_tick().await;
                 }
             }
         }
     }
-    async fn handle_event(&mut self, event: ChannelEvent) {}
-    async fn handle_cpu_tick(&mut self) {}
+    async fn handle_event(&mut self, event: ChannelEvent) {
+        match event {
+            ChannelEvent::InhibitedAppsChanged(apps) => {
+                self.daemon.inhibited_apps_changed(apps).await;
+            }
+
+            ChannelEvent::MediaUnitsChanged(cgroups) => {
+                self.daemon.media_units_changed(cgroups).await;
+            }
+
+            ChannelEvent::WindowAdded { window_id, pid } => {
+                self.daemon.window_added(window_id, pid).await;
+            }
+
+            ChannelEvent::WindowRemoved { window_id, pid } => {
+                self.daemon.window_removed(window_id, pid).await;
+            }
+            ChannelEvent::WindowMinimizedChanged {
+                window_id,
+                pid,
+                minimized,
+            } => {
+                self.daemon
+                    .window_minimized_changed(window_id, pid, minimized)
+                    .await;
+            }
+            ChannelEvent::WindowActiveChanged {
+                window_id,
+                pid,
+                active,
+            } => {
+                self.daemon
+                    .window_active_changed(window_id, pid, active)
+                    .await;
+            }
+        }
+    }
+    async fn handle_cpu_tick(&mut self) {
+        self.daemon.cpu_load_tick().await;
+    }
 }

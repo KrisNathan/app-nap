@@ -1,5 +1,6 @@
 /// Pure business logic
 pub mod app_state;
+pub mod cpu_sample;
 pub mod policy;
 pub mod tier;
 pub mod unit_state;

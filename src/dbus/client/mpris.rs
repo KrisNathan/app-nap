@@ -6,8 +6,8 @@ use zbus::{Proxy, fdo::DBusProxy, names::OwnedBusName};
 
 use crate::cgroup::Cgroup;
 
-const MPRIS_PREFIX: &str = "org.mpris.MediaPlayer2.";
-const MPRIS_PLAYER_PATH: &str = "/org/mpris/MediaPlayer2";
+pub const MPRIS_PREFIX: &str = "org.mpris.MediaPlayer2.";
+pub const MPRIS_PLAYER_PATH: &str = "/org/mpris/MediaPlayer2";
 const MPRIS_PLAYER_INTERFACE: &str = "org.mpris.MediaPlayer2.Player";
 
 pub struct MprisDBusProxy {
@@ -20,6 +20,14 @@ impl MprisDBusProxy {
     pub async fn new(conn: zbus::Connection) -> Result<Self, zbus::Error> {
         let fdo = DBusProxy::new(&conn).await?;
         Ok(Self { conn, fdo })
+    }
+
+    pub fn connection(&self) -> &zbus::Connection {
+        &self.conn
+    }
+
+    pub fn fdo(&self) -> &DBusProxy<'static> {
+        &self.fdo
     }
 
     async fn get_players(&self) -> Result<Vec<OwnedBusName>, zbus::Error> {

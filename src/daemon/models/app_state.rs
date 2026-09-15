@@ -5,8 +5,10 @@ use log::warn;
 
 use crate::{
     cgroup::{Cgroup, resolve::related_units},
-    config::models::{cpu_load_polling::CpuLoadPollingConfig, cpu_sample::CpuSample},
-    daemon::models::{policy::Policy, tier::Tier, wake_signals::WakeSignals},
+    config::models::cpu_load_polling::CpuLoadPollingConfig,
+    daemon::models::{
+        cpu_sample::CpuSample, policy::Policy, tier::Tier, wake_signals::WakeSignals,
+    },
 };
 
 #[derive(Clone, Copy, PartialEq)]
@@ -102,7 +104,7 @@ impl AppState {
             self.ticks = 0;
             if self.load != self.queued_load {
                 self.load = self.queued_load;
-                self.reconcile_policy(wake_signals).await;
+                self.recompute_vote(wake_signals);
             }
         }
     }
@@ -143,17 +145,31 @@ impl AppState {
             (Tier::Nap, Load::Busy) => Policy::NapBusy,
         }
     }
+}
 
-    pub async fn reconcile_policy(&mut self, wake_signals: &WakeSignals) {
+pub enum CgroupRefreshResult {
+    NoChange,
+    Changed,
+}
+
+impl AppState {
+    pub fn refresh_cgroups(&mut self) -> CgroupRefreshResult {
         match related_units(self.pid) {
             Ok(cgroups) if cgroups != self.cgroups => {
                 self.cgroups = cgroups;
                 self.last_cpu_sample = None;
+                CgroupRefreshResult::Changed
             }
-            Ok(_) => {}
-            Err(e) => warn!("failed to resolve cgroups for pid {}: {e}", self.pid),
+            Ok(_) => CgroupRefreshResult::NoChange,
+            Err(e) => {
+                warn!("failed to resolve cgroups for pid {}: {e}", self.pid);
+                CgroupRefreshResult::NoChange
+            }
         }
+    }
 
+    /// Updates voted_policy
+    pub fn recompute_vote(&mut self, wake_signals: &WakeSignals) {
         let is_any_active = self.windows.values().any(|window| window.active);
         let is_any_unminimized = self.windows.values().any(|window| !window.minimized);
         let is_inhibiting = wake_signals.is_inhibiting(&self.cgroups);
@@ -169,7 +185,7 @@ impl AppState {
         self.voted_policy = Self::eval_policy(self.tier, self.load);
     }
 
-    pub async fn window_minimized_changed(
+    pub fn window_minimized_changed(
         &mut self,
         window_id: &str,
         is_minimized: bool,
@@ -179,11 +195,11 @@ impl AppState {
             && window.minimized != is_minimized
         {
             window.minimized = is_minimized;
-            self.reconcile_policy(wake_signals).await;
+            self.recompute_vote(wake_signals);
         }
     }
 
-    pub async fn window_active_changed(
+    pub fn window_active_changed(
         &mut self,
         window_id: &str,
         is_active: bool,
@@ -193,11 +209,11 @@ impl AppState {
             && window.active != is_active
         {
             window.active = is_active;
-            self.reconcile_policy(wake_signals).await;
+            self.recompute_vote(wake_signals);
         }
     }
 
-    pub async fn window_added(
+    pub fn window_added(
         &mut self,
         window_id: String,
         is_minimized: bool,
@@ -211,13 +227,13 @@ impl AppState {
                 active: is_active,
             },
         );
-        self.reconcile_policy(wake_signals).await;
+        self.recompute_vote(wake_signals);
     }
 
-    pub async fn window_removed(&mut self, window_id: &str, wake_signals: &WakeSignals) {
+    pub fn window_removed(&mut self, window_id: &str, wake_signals: &WakeSignals) {
         self.windows.remove(window_id);
         if self.has_windows() {
-            self.reconcile_policy(wake_signals).await;
+            self.recompute_vote(wake_signals);
         }
     }
 }
@@ -225,5 +241,12 @@ impl AppState {
 impl AppState {
     pub fn get_cgroups(&self) -> &HashSet<Cgroup> {
         &self.cgroups
+    }
+    pub fn get_voted_policy(&self) -> Policy {
+        self.voted_policy
+    }
+    /// App is polled if not in "performance" tier
+    pub fn is_polled(&self) -> bool {
+        self.tier != Tier::Performance
     }
 }

@@ -5,10 +5,18 @@ mod daemon;
 mod dbus;
 mod inhibitor;
 
-use std::{error::Error, future::pending};
-use tokio::sync::mpsc;
+use std::{error::Error, time::Duration};
 
-use crate::config::load_config;
+use tokio::{sync::mpsc, time};
+
+use crate::{
+    config::load_config,
+    daemon::{Daemon, EventLoop, channel_event::ChannelEvent},
+    dbus::client::mpris::MprisDBusProxy,
+    dbus::client::powerdevil::PowerDevilDBusProxy,
+    dbus::server::DBusDaemon,
+    inhibitor::{mpris::MprisWatcher, powerdevil::PowerDevilInhibitor},
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -16,30 +24,34 @@ async fn main() -> Result<(), Box<dyn Error>> {
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
     logger.target(env_logger::Target::Stdout).init();
 
-    let conf = load_config().unwrap(); // fuck
+    let conf = load_config().unwrap(); // pray
 
-    let dbus_conn = zbus::Connection::session().await?; // it's Arc under the hood so .clone is ok apparently
-    // let systemd_client = SystemdDbusClient::new(dbus_conn.clone());
-    // let policies = Policies::from_config(config_service.get_config(), systemd_client);
-    // let cpu_load_polling = config_service.get_config().cpu_load_polling.clone();
-    // let inhibit_service = KdeInhibitService::new(dbus_conn.clone());
-    // let media_service = MprisMediaService::new(dbus_conn.clone());
+    let dbus_conn = zbus::Connection::session().await?; // it's Arc under the hood so .clone is to be expected
+    let (tx, rx) = mpsc::channel::<ChannelEvent>(32);
 
-    // let (tx, rx) = mpsc::channel::<ChannelEvent>(32);
+    let powerdevil =
+        PowerDevilInhibitor::new(PowerDevilDBusProxy::new(&dbus_conn).await?, tx.clone());
+    tokio::spawn(async move { powerdevil.watch().await });
 
-    // let mut daemon = Daemon::new(policies, inhibit_service, media_service, cpu_load_polling);
-    // tokio::spawn(async move {
-    //     daemon.run(rx).await;
-    // });
+    let mpris = MprisWatcher::new(MprisDBusProxy::new(dbus_conn.clone()).await?, tx.clone());
+    tokio::spawn(async move {
+        if let Err(e) = mpris.watch().await {
+            log::warn!("mpris watcher exited: {e}");
+        }
+    });
 
-    // let dbus_daemon = DBusDaemon::new(tx.clone());
+    let daemon = Daemon::new(&conf, &dbus_conn).await;
+    let cpu_tick = time::interval(Duration::from_millis(conf.cpu_load_polling.interval_ms));
+    let mut event_loop = EventLoop::new(daemon, cpu_tick, rx);
 
-    // dbus_conn
-    //     .object_server()
-    //     .at("/dev/appnap/AppNap", dbus_daemon)
-    //     .await?;
-    // dbus_conn.request_name("dev.appnap.AppNap").await?;
+    let dbus_daemon = DBusDaemon::new(tx);
 
-    // pending::<()>().await;
+    dbus_conn
+        .object_server()
+        .at("/dev/appnap/AppNap", dbus_daemon)
+        .await?;
+    dbus_conn.request_name("dev.appnap.AppNap").await?;
+
+    event_loop.serve().await;
     Ok(())
 }

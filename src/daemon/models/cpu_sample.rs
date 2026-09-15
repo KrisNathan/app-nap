@@ -14,6 +14,13 @@ pub struct CpuSample {
 }
 
 impl CpuSample {
+    pub fn now(usage_usec: u64, throttle_usecs: HashMap<Cgroup, u64>) -> Self {
+        Self {
+            sample_time: Instant::now(),
+            usage_usec,
+            throttle_usecs,
+        }
+    }
     pub fn delta_since(&self, prev: &CpuSample) -> Option<(f64, f64)> {
         let delta_t_usec = self
             .sample_time

@@ -100,7 +100,12 @@ impl Action {
             Action::SystemdFreeze { systemd } => systemd_freeze::revert(cgroup, systemd)
                 .await
                 .map_err(ActionError::SystemdFreeze),
-            Action::SystemdCpuQuota { .. } | Action::SystemdCpuWeight { .. } => Ok(()),
+            Action::SystemdCpuQuota { systemd, .. } => systemd_cpu_quota::revert(cgroup, systemd)
+                .await
+                .map_err(ActionError::SystemdCpuQuota),
+            Action::SystemdCpuWeight { systemd, .. } => systemd_cpu_weight::revert(cgroup, systemd)
+                .await
+                .map_err(ActionError::SystemdCpuWeight),
         }
     }
 }

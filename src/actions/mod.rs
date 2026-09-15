@@ -13,9 +13,6 @@ mod systemd_freeze;
 
 #[derive(Debug, Error)]
 pub enum ActionError {
-    #[error("signal action failed: {0}")]
-    Signal(#[source] io::Error),
-
     #[error("E-core action failed: {0}")]
     Ecore(#[source] io::Error),
 
@@ -75,22 +72,16 @@ impl Action {
             Action::SystemdFreeze { systemd } => systemd_freeze::apply(cgroup, systemd)
                 .await
                 .map_err(ActionError::SystemdFreeze),
-            Action::SystemdCpuQuota { systemd, percent } => systemd
-                .set_unit_property(
-                    cgroup.get_unit_name().as_str(),
-                    "CPUQuotaPerSecUSec",
-                    u64::from(*percent) * 10_000,
-                )
-                .await
-                .map_err(ActionError::SystemdCpuQuota),
-            Action::SystemdCpuWeight { systemd, weight } => systemd
-                .set_unit_property(
-                    cgroup.get_unit_name().as_str(),
-                    "CPUWeight",
-                    u64::from(*weight),
-                )
-                .await
-                .map_err(ActionError::SystemdCpuWeight),
+            Action::SystemdCpuQuota { systemd, percent } => {
+                systemd_cpu_quota::apply(cgroup, *percent, systemd)
+                    .await
+                    .map_err(ActionError::SystemdCpuQuota)
+            }
+            Action::SystemdCpuWeight { systemd, weight } => {
+                systemd_cpu_weight::apply(cgroup, *weight, systemd)
+                    .await
+                    .map_err(ActionError::SystemdCpuWeight)
+            }
         }
     }
 

@@ -5,7 +5,7 @@ const CPU_WEIGHT_DEFAULT: u64 = 100;
 
 pub async fn apply(
     cgroup: &Cgroup,
-    weight: u32,
+    weight: u64,
     systemd: &SystemdDBusProxy<'_>,
 ) -> zbus::Result<()> {
     systemd

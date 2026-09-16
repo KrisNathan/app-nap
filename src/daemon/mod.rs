@@ -15,7 +15,7 @@ use libc::pid_t;
 
 use crate::{
     cgroup::{Cgroup, UnitPath, proc_util::process_comm},
-    config::models::{Config, cpu_load_polling::CpuLoadPollingConfig, policies::PoliciesConfig},
+    config::models::{Config, cpu_load_polling::CpuLoadPollingConfig},
     daemon::{
         models::{
             app_snapshot::AppSnapshot,
@@ -36,7 +36,6 @@ pub struct Daemon {
 
     wake_signals: WakeSignals,
 
-    policies_config: PoliciesConfig,
     cpu_load_polling_config: CpuLoadPollingConfig,
 
     policy_router: PolicyRouter,
@@ -48,7 +47,6 @@ impl Daemon {
             apps: HashMap::new(),
             units: HashMap::new(),
             wake_signals: WakeSignals::default(),
-            policies_config: config.policies.clone(),
             cpu_load_polling_config: config.cpu_load_polling.clone(),
             policy_router: PolicyRouter::from_config(&config.policies, conn).await,
         }

@@ -20,12 +20,12 @@ impl MprisWatcher {
         Self { dbus, tx }
     }
 
-    /// Fetches the cgroups of currently playing players and sends them.
+    /// Fetches the units of currently playing players and sends them.
     /// Returns false when the daemon's channel is gone.
     async fn refresh(&self) -> bool {
-        let cgroups = self
+        let units = self
             .dbus
-            .get_playing_player_cgroups()
+            .get_playing_player_units()
             .await
             .unwrap_or_else(|e| {
                 warn!("failed to poll MPRIS players: {e}");
@@ -33,7 +33,7 @@ impl MprisWatcher {
             });
 
         self.tx
-            .send(ChannelEvent::MediaUnitsChanged(cgroups))
+            .send(ChannelEvent::MediaUnitsChanged(units))
             .await
             .is_ok()
     }

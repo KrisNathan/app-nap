@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use libc::pid_t;
 use tokio::sync::oneshot;
 
-use crate::{cgroup::Cgroup, daemon::models::app_snapshot::AppSnapshot};
+use crate::{cgroup::UnitPath, daemon::models::app_snapshot::AppSnapshot};
 
 #[derive(Debug)]
 pub enum ChannelEvent {
@@ -25,7 +25,7 @@ pub enum ChannelEvent {
         pid: pid_t,
         active: bool,
     },
-    MediaUnitsChanged(HashSet<Cgroup>),
+    MediaUnitsChanged(HashSet<UnitPath>),
     InhibitedAppsChanged(HashSet<String>),
 
     ListApps {

@@ -37,6 +37,30 @@ impl UnitPath {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Returns the PIDs of all processes in this cgroup.
+    /// Utilizes /sys/fs/cgroup to read the cgroup.procs file.
+    pub fn get_pids(&self) -> io::Result<Vec<pid_t>> {
+        let mut pids = Vec::new();
+        let mut pending: Vec<std::path::PathBuf> = vec![format!("/sys/fs/cgroup{self}").into()];
+
+        while let Some(path) = pending.pop() {
+            pids.extend(
+                fs::read_to_string(path.join("cgroup.procs"))?
+                    .lines()
+                    .filter_map(|line| line.trim().parse::<pid_t>().ok()),
+            );
+
+            for entry in fs::read_dir(path)? {
+                let entry = entry?;
+                if entry.file_type()?.is_dir() {
+                    pending.push(entry.path());
+                }
+            }
+        }
+
+        Ok(pids)
+    }
 }
 impl std::fmt::Display for UnitPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -48,7 +72,7 @@ impl std::fmt::Display for UnitPath {
 ///
 /// Example: `app-konsole-1.scope`.
 ///
-/// This is the systemd/D-Bus handle and the natural map key for a unit.
+/// This is the systemd/D-Bus handle associated with a unit ledger.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UnitName(String);
 impl UnitName {
@@ -114,18 +138,6 @@ impl Cgroup {
 
     pub fn get_unit_name(&self) -> &UnitName {
         &self.unit_name
-    }
-
-    /// Returns the PIDs of all processes in this cgroup.
-    /// Utilizes /sys/fs/cgroup to read the cgroup.procs file.
-    pub fn get_pids(&self) -> io::Result<Vec<pid_t>> {
-        let full = &self.full;
-        let procs_path = format!("/sys/fs/cgroup{full}/cgroup.procs");
-        Ok(fs::read_to_string(procs_path)?
-            .lines()
-            .map(String::from)
-            .filter_map(|line| line.trim().parse::<pid_t>().ok())
-            .collect())
     }
 
     pub fn get_cpu_stat(&self) -> io::Result<CpuStat> {
@@ -198,6 +210,18 @@ mod tests {
 
         assert_eq!(cgroup.get_unit_path().as_str(), cgroup.get_full().as_str());
         assert_eq!(cgroup.get_unit_name().as_str(), "app-firefox-42.scope");
+    }
+
+    #[test]
+    fn fine_cgroups_under_one_unit_share_a_unit_path() {
+        let main = Cgroup::parse(KONSOLE).unwrap();
+        let tab = Cgroup::parse(
+            "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.kde.konsole-39967.scope/tab(9).scope\n",
+        )
+        .unwrap();
+
+        assert_ne!(main.get_full(), tab.get_full());
+        assert_eq!(main.get_unit_path(), tab.get_unit_path());
     }
 
     #[test]

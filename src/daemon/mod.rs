@@ -5,7 +5,6 @@ mod policy_router;
 mod usage_tracker;
 
 pub use event_loop::EventLoop;
-use tokio::sync::oneshot;
 
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
@@ -15,7 +14,7 @@ use std::{
 use libc::pid_t;
 
 use crate::{
-    cgroup::{Cgroup, proc_util::process_comm},
+    cgroup::{Cgroup, UnitPath, proc_util::process_comm},
     config::models::{Config, cpu_load_polling::CpuLoadPollingConfig, policies::PoliciesConfig},
     daemon::{
         models::{
@@ -33,7 +32,7 @@ pub struct Daemon {
     apps: HashMap<pid_t, AppState>,
 
     // this is needed because reverting a policy change requires us to know which unit to revert from
-    units: HashMap<Cgroup, UnitState>,
+    units: HashMap<UnitPath, UnitState>,
 
     wake_signals: WakeSignals,
 
@@ -55,8 +54,8 @@ impl Daemon {
         }
     }
 
-    async fn leave_unit(&mut self, cgroup: &Cgroup, pid: pid_t) {
-        let Some(unit) = self.units.get_mut(cgroup) else {
+    async fn leave_unit(&mut self, unit_path: &UnitPath, pid: pid_t) {
+        let Some(unit) = self.units.get_mut(unit_path) else {
             return;
         };
 
@@ -69,35 +68,46 @@ impl Daemon {
         // unit is empty, remove from units
 
         if let Some(applied) = unit.applied_policy {
-            self.policy_router.revert(applied, cgroup).await;
+            self.policy_router
+                .revert(applied, unit_path, &unit.name)
+                .await;
         }
 
-        self.units.remove(cgroup);
+        self.units.remove(unit_path);
     }
 
-    /// Returns affected cgroups.
-    async fn sync_membership(&mut self, pid: pid_t) -> HashSet<Cgroup> {
+    /// Returns affected unit paths.
+    async fn sync_membership(&mut self, pid: pid_t) -> HashSet<UnitPath> {
         let Some(app) = self.apps.get_mut(&pid) else {
             return HashSet::new();
         };
 
-        let old = app.get_cgroups().clone();
+        let old = app.get_unit_paths().clone();
 
         match app.refresh_cgroups() {
             CgroupRefreshResult::NoChange => return old,
             CgroupRefreshResult::Changed => {}
         }
 
-        let new = app.get_cgroups().clone();
+        let new = app.get_unit_paths().clone();
+        let added = new
+            .difference(&old)
+            .filter_map(|unit_path| {
+                app.get_cgroups()
+                    .iter()
+                    .find(|cgroup| cgroup.get_unit_path() == unit_path)
+                    .map(|cgroup| (unit_path.clone(), cgroup.get_unit_name().clone()))
+            })
+            .collect::<Vec<_>>();
 
-        for cgroup in old.difference(&new) {
-            self.leave_unit(cgroup, pid).await;
+        for unit_path in old.difference(&new) {
+            self.leave_unit(unit_path, pid).await;
         }
 
-        for cgroup in new.difference(&old) {
+        for (unit_path, unit_name) in added {
             self.units
-                .entry(cgroup.clone())
-                .or_insert(UnitState::new(BTreeSet::new()))
+                .entry(unit_path)
+                .or_insert(UnitState::new(unit_name, BTreeSet::new()))
                 .members
                 .insert(pid);
         }
@@ -124,18 +134,18 @@ impl Daemon {
         };
         app.window_removed(&window_id, &self.wake_signals);
 
-        let cgroups = app.get_cgroups().clone();
+        let unit_paths = app.get_unit_paths().clone();
         if app.has_windows() {
-            self.reconcile_policy(&cgroups).await;
+            self.reconcile_policy(&unit_paths).await;
             return;
         }
 
         // no windows left, remove cgroups
         self.apps.remove(&pid);
-        for cgroup in &cgroups {
-            self.leave_unit(cgroup, pid).await;
+        for unit_path in &unit_paths {
+            self.leave_unit(unit_path, pid).await;
         }
-        self.reconcile_policy(&cgroups).await;
+        self.reconcile_policy(&unit_paths).await;
     }
 
     pub async fn window_minimized_changed(
@@ -148,7 +158,7 @@ impl Daemon {
             return;
         };
         app.window_minimized_changed(&window_id, minimized, &self.wake_signals);
-        let affected = app.get_cgroups().clone();
+        let affected = app.get_unit_paths().clone();
         self.reconcile_policy(&affected).await;
     }
 
@@ -157,11 +167,11 @@ impl Daemon {
             return;
         };
         app_state.window_active_changed(&window_id, active, &self.wake_signals);
-        let affected = app_state.get_cgroups().clone();
+        let affected = app_state.get_unit_paths().clone();
         self.reconcile_policy(&affected).await;
     }
 
-    async fn reconcile_policy(&mut self, keys: &HashSet<Cgroup>) {
+    async fn reconcile_policy(&mut self, keys: &HashSet<UnitPath>) {
         for key in keys {
             let Some(unit) = self.units.get_mut(key) else {
                 continue;
@@ -182,10 +192,10 @@ impl Daemon {
                 if old_policy == new_policy {
                     continue;
                 }
-                self.policy_router.revert(old_policy, key).await;
+                self.policy_router.revert(old_policy, key, &unit.name).await;
             }
 
-            self.policy_router.apply(new_policy, key).await;
+            self.policy_router.apply(new_policy, key, &unit.name).await;
             unit.applied_policy = Some(new_policy);
         }
     }
@@ -195,21 +205,21 @@ impl Daemon {
         self.recompute_wake_votes().await;
     }
 
-    pub async fn media_units_changed(&mut self, cgroups: HashSet<Cgroup>) {
-        self.wake_signals.mpris_units = cgroups;
+    pub async fn media_units_changed(&mut self, unit_paths: HashSet<UnitPath>) {
+        self.wake_signals.mpris_units = unit_paths;
         self.recompute_wake_votes().await;
     }
 
     /// A wake signal moved; recompute every app's vote and reconcile the
     /// units whose policy actually changed.
     async fn recompute_wake_votes(&mut self) {
-        let mut affected: HashSet<Cgroup> = HashSet::new();
+        let mut affected: HashSet<UnitPath> = HashSet::new();
 
         for app in self.apps.values_mut() {
             let before = app.get_voted_policy();
             app.recompute_vote(&self.wake_signals);
             if app.get_voted_policy() != before {
-                affected.extend(app.get_cgroups().iter().cloned());
+                affected.extend(app.get_unit_paths().iter().cloned());
             }
         }
 
@@ -221,13 +231,12 @@ impl Daemon {
     }
 
     pub async fn cpu_load_tick(&mut self) {
-        let mut affected_cgroups: HashSet<Cgroup> = HashSet::new();
+        let mut affected_unit_paths: HashSet<UnitPath> = HashSet::new();
 
         for app in self.apps.values_mut().filter(|a| a.is_polled()) {
-            let cgroups = app.get_cgroups();
-            affected_cgroups.extend(cgroups.iter().cloned());
+            affected_unit_paths.extend(app.get_unit_paths().iter().cloned());
 
-            let Ok(sample) = sample_cpu(cgroups) else {
+            let Ok(sample) = sample_cpu(app.get_cgroups()) else {
                 continue;
             };
 
@@ -235,7 +244,7 @@ impl Daemon {
                 .await;
         }
 
-        self.reconcile_policy(&affected_cgroups).await;
+        self.reconcile_policy(&affected_unit_paths).await;
     }
 }
 

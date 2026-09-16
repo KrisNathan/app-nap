@@ -4,7 +4,7 @@ use libc::pid_t;
 use log::warn;
 use zbus::{Proxy, fdo::DBusProxy, names::OwnedBusName};
 
-use crate::cgroup::Cgroup;
+use crate::cgroup::{Cgroup, UnitPath};
 
 pub const MPRIS_PREFIX: &str = "org.mpris.MediaPlayer2.";
 pub const MPRIS_PLAYER_PATH: &str = "/org/mpris/MediaPlayer2";
@@ -66,8 +66,8 @@ impl MprisDBusProxy {
             .await? as pid_t)
     }
 
-    pub async fn get_playing_player_cgroups(&self) -> Result<HashSet<Cgroup>, zbus::Error> {
-        let mut cgroups = HashSet::<Cgroup>::new();
+    pub async fn get_playing_player_units(&self) -> Result<HashSet<UnitPath>, zbus::Error> {
+        let mut units = HashSet::<UnitPath>::new();
 
         for player in self.get_players().await? {
             let playing = self.is_playing(&player).await.unwrap_or_else(|e| {
@@ -89,7 +89,7 @@ impl MprisDBusProxy {
 
             match Cgroup::from_pid(pid) {
                 Ok(cgroup) => {
-                    cgroups.insert(cgroup);
+                    units.insert(cgroup.get_unit_path().clone());
                 }
                 Err(e) => {
                     warn!("Failed to resolve cgroup for player {player} (pid {pid}): {e}")
@@ -97,6 +97,6 @@ impl MprisDBusProxy {
             }
         }
 
-        Ok(cgroups)
+        Ok(units)
     }
 }

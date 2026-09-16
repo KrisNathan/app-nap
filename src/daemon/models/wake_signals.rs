@@ -1,12 +1,12 @@
 use std::collections::HashSet;
 
-use crate::cgroup::Cgroup;
+use crate::cgroup::{Cgroup, UnitPath};
 
 #[derive(Default)]
 pub struct WakeSignals {
     /// cgroup unit contains these app names
     pub powerdevil_apps: HashSet<String>,
-    pub mpris_units: HashSet<Cgroup>,
+    pub mpris_units: HashSet<UnitPath>,
 }
 
 impl WakeSignals {
@@ -18,11 +18,9 @@ impl WakeSignals {
         })
     }
 
-    pub fn is_playing_media(&self, cgroups: &HashSet<Cgroup>) -> bool {
-        cgroups.iter().any(|cg| {
-            self.mpris_units
-                .iter()
-                .any(|player| player.get_unit_name() == cg.get_unit_name())
-        })
+    pub fn is_playing_media(&self, unit_paths: &HashSet<UnitPath>) -> bool {
+        unit_paths
+            .iter()
+            .any(|path| self.mpris_units.contains(path))
     }
 }

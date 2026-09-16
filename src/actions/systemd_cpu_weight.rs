@@ -1,24 +1,20 @@
-use crate::cgroup::Cgroup;
+use crate::cgroup::UnitName;
 use crate::dbus::client::systemd::SystemdDBusProxy;
 
 const CPU_WEIGHT_DEFAULT: u64 = 100;
 
 pub async fn apply(
-    cgroup: &Cgroup,
+    unit_name: &UnitName,
     weight: u64,
     systemd: &SystemdDBusProxy<'_>,
 ) -> zbus::Result<()> {
     systemd
-        .set_unit_property(cgroup.get_unit_name().as_str(), "CPUWeight", weight)
+        .set_unit_property(unit_name.as_str(), "CPUWeight", weight)
         .await
 }
 
-pub async fn revert(cgroup: &Cgroup, systemd: &SystemdDBusProxy<'_>) -> zbus::Result<()> {
+pub async fn revert(unit_name: &UnitName, systemd: &SystemdDBusProxy<'_>) -> zbus::Result<()> {
     systemd
-        .set_unit_property(
-            cgroup.get_unit_name().as_str(),
-            "CPUWeight",
-            CPU_WEIGHT_DEFAULT,
-        )
+        .set_unit_property(unit_name.as_str(), "CPUWeight", CPU_WEIGHT_DEFAULT)
         .await
 }

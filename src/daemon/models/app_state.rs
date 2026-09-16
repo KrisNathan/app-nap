@@ -4,7 +4,7 @@ use libc::pid_t;
 use log::warn;
 
 use crate::{
-    cgroup::{Cgroup, resolve::related_units},
+    cgroup::{Cgroup, UnitPath, resolve::related_units},
     config::models::cpu_load_polling::CpuLoadPollingConfig,
     daemon::models::{
         cpu_sample::CpuSample, policy::Policy, tier::Tier, wake_signals::WakeSignals,
@@ -28,6 +28,7 @@ pub struct AppState {
     /// key: window id
     windows: HashMap<String, Window>,
     cgroups: HashSet<Cgroup>,
+    unit_paths: HashSet<UnitPath>,
 
     load: Load,
     queued_load: Load,
@@ -49,6 +50,7 @@ impl AppState {
             pid,
             windows: HashMap::new(),
             cgroups: HashSet::new(),
+            unit_paths: HashSet::new(),
             load: Load::Busy,
             queued_load: Load::Busy,
             ticks: 0,
@@ -156,6 +158,10 @@ impl AppState {
     pub fn refresh_cgroups(&mut self) -> CgroupRefreshResult {
         match related_units(self.pid) {
             Ok(cgroups) if cgroups != self.cgroups => {
+                self.unit_paths = cgroups
+                    .iter()
+                    .map(|cgroup| cgroup.get_unit_path().clone())
+                    .collect();
                 self.cgroups = cgroups;
                 self.last_cpu_sample = None;
                 CgroupRefreshResult::Changed
@@ -173,7 +179,7 @@ impl AppState {
         let is_any_active = self.windows.values().any(|window| window.active);
         let is_any_unminimized = self.windows.values().any(|window| !window.minimized);
         let is_inhibiting = wake_signals.is_inhibiting(&self.cgroups);
-        let is_playing_media = wake_signals.is_playing_media(&self.cgroups);
+        let is_playing_media = wake_signals.is_playing_media(&self.unit_paths);
 
         self.tier = Self::eval_tier(
             is_any_active,
@@ -246,6 +252,10 @@ impl AppState {
 
     pub fn get_cgroups(&self) -> &HashSet<Cgroup> {
         &self.cgroups
+    }
+
+    pub fn get_unit_paths(&self) -> &HashSet<UnitPath> {
+        &self.unit_paths
     }
 
     pub fn get_voted_policy(&self) -> Policy {

@@ -1,6 +1,6 @@
 use crate::{
     actions::Action,
-    cgroup::Cgroup,
+    cgroup::{UnitName, UnitPath},
     config::models::{action::ActionConfig, policies::PoliciesConfig},
     daemon::models::policy::Policy,
 };
@@ -42,15 +42,15 @@ impl PolicyRouter {
             Policy::NapBusy => &self.nap_busy,
         }
     }
-    pub async fn apply(&self, policy: Policy, cgroup: &Cgroup) {
+    pub async fn apply(&self, policy: Policy, unit_path: &UnitPath, unit_name: &UnitName) {
         for action in self.map_policy_to_actions(policy) {
-            action.apply(cgroup).await.unwrap(); // pray
+            action.apply(unit_path, unit_name).await.unwrap(); // pray
         }
     }
-    pub async fn revert(&self, policy: Policy, cgroup: &Cgroup) {
+    pub async fn revert(&self, policy: Policy, unit_path: &UnitPath, unit_name: &UnitName) {
         // lifo
         for action in self.map_policy_to_actions(policy).iter().rev() {
-            action.revert(cgroup).await.unwrap(); // pray
+            action.revert(unit_path, unit_name).await.unwrap(); // pray
         }
     }
 }

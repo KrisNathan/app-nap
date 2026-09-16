@@ -1,5 +1,7 @@
 use crate::{
-    actions::ecore::EcoreAction, cgroup::Cgroup, config::models::action::ActionConfig,
+    actions::ecore::EcoreAction,
+    cgroup::{UnitName, UnitPath},
+    config::models::action::ActionConfig,
     dbus::client::systemd::SystemdDBusProxy,
 };
 
@@ -66,37 +68,49 @@ impl Action {
         })
     }
 
-    pub async fn apply(&self, cgroup: &Cgroup) -> Result<(), ActionError> {
+    pub async fn apply(
+        &self,
+        unit_path: &UnitPath,
+        unit_name: &UnitName,
+    ) -> Result<(), ActionError> {
         match self {
-            Action::Ecore { ecore } => ecore.apply(cgroup).map_err(ActionError::Ecore),
-            Action::SystemdFreeze { systemd } => systemd_freeze::apply(cgroup, systemd)
+            Action::Ecore { ecore } => ecore.apply(unit_path).map_err(ActionError::Ecore),
+            Action::SystemdFreeze { systemd } => systemd_freeze::apply(unit_name, systemd)
                 .await
                 .map_err(ActionError::SystemdFreeze),
             Action::SystemdCpuQuota { systemd, percent } => {
-                systemd_cpu_quota::apply(cgroup, *percent, systemd)
+                systemd_cpu_quota::apply(unit_name, *percent, systemd)
                     .await
                     .map_err(ActionError::SystemdCpuQuota)
             }
             Action::SystemdCpuWeight { systemd, weight } => {
-                systemd_cpu_weight::apply(cgroup, *weight, systemd)
+                systemd_cpu_weight::apply(unit_name, *weight, systemd)
                     .await
                     .map_err(ActionError::SystemdCpuWeight)
             }
         }
     }
 
-    pub async fn revert(&self, cgroup: &Cgroup) -> Result<(), ActionError> {
+    pub async fn revert(
+        &self,
+        unit_path: &UnitPath,
+        unit_name: &UnitName,
+    ) -> Result<(), ActionError> {
         match self {
-            Action::Ecore { ecore } => ecore.revert(cgroup).map_err(ActionError::Ecore),
-            Action::SystemdFreeze { systemd } => systemd_freeze::revert(cgroup, systemd)
+            Action::Ecore { ecore } => ecore.revert(unit_path).map_err(ActionError::Ecore),
+            Action::SystemdFreeze { systemd } => systemd_freeze::revert(unit_name, systemd)
                 .await
                 .map_err(ActionError::SystemdFreeze),
-            Action::SystemdCpuQuota { systemd, .. } => systemd_cpu_quota::revert(cgroup, systemd)
-                .await
-                .map_err(ActionError::SystemdCpuQuota),
-            Action::SystemdCpuWeight { systemd, .. } => systemd_cpu_weight::revert(cgroup, systemd)
-                .await
-                .map_err(ActionError::SystemdCpuWeight),
+            Action::SystemdCpuQuota { systemd, .. } => {
+                systemd_cpu_quota::revert(unit_name, systemd)
+                    .await
+                    .map_err(ActionError::SystemdCpuQuota)
+            }
+            Action::SystemdCpuWeight { systemd, .. } => {
+                systemd_cpu_weight::revert(unit_name, systemd)
+                    .await
+                    .map_err(ActionError::SystemdCpuWeight)
+            }
         }
     }
 }

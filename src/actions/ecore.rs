@@ -1,4 +1,4 @@
-use crate::cgroup::Cgroup;
+use crate::cgroup::UnitPath;
 use libc::{self, cpu_set_t, pid_t};
 use std::fs;
 use std::io;
@@ -31,18 +31,18 @@ impl EcoreAction {
     }
 
     /// Applies E-Core affinity to all pids under the given cgroup.
-    pub fn apply(&self, cgroup: &Cgroup) -> io::Result<()> {
-        set_affinity_for_cgroup(cgroup, &self.ecores)
+    pub fn apply(&self, unit_path: &UnitPath) -> io::Result<()> {
+        set_affinity_for_cgroup(unit_path, &self.ecores)
     }
 
     /// Reverts E-Core affinity to all pids under the given cgroup.
-    pub fn revert(&self, cgroup: &Cgroup) -> io::Result<()> {
-        set_affinity_for_cgroup(cgroup, &self.allcores)
+    pub fn revert(&self, unit_path: &UnitPath) -> io::Result<()> {
+        set_affinity_for_cgroup(unit_path, &self.allcores)
     }
 }
 
-fn set_affinity_for_cgroup(cgroup: &Cgroup, cpuset: &cpu_set_t) -> io::Result<()> {
-    let pids = cgroup.get_pids()?;
+fn set_affinity_for_cgroup(unit_path: &UnitPath, cpuset: &cpu_set_t) -> io::Result<()> {
+    let pids = unit_path.get_pids()?;
 
     for p in pids {
         // A pid may have exited between enumeration and the syscall; treat

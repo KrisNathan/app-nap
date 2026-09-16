@@ -1,9 +1,9 @@
-use crate::{cgroup::Cgroup, dbus::client::systemd::SystemdDBusProxy};
+use crate::{cgroup::UnitName, dbus::client::systemd::SystemdDBusProxy};
 
-pub async fn apply(cgroup: &Cgroup, systemd: &SystemdDBusProxy<'_>) -> zbus::Result<()> {
-    systemd.freeze_unit(cgroup.get_unit_name().as_str()).await
+pub async fn apply(unit_name: &UnitName, systemd: &SystemdDBusProxy<'_>) -> zbus::Result<()> {
+    systemd.freeze_unit(unit_name.as_str()).await
 }
 
-pub async fn revert(cgroup: &Cgroup, systemd: &SystemdDBusProxy<'_>) -> zbus::Result<()> {
-    systemd.thaw_unit(cgroup.get_unit_name().as_str()).await
+pub async fn revert(unit_name: &UnitName, systemd: &SystemdDBusProxy<'_>) -> zbus::Result<()> {
+    systemd.thaw_unit(unit_name.as_str()).await
 }

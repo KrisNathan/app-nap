@@ -1,10 +1,11 @@
 use std::collections::HashSet;
 
 use libc::pid_t;
+use tokio::sync::oneshot;
 
-use crate::cgroup::Cgroup;
+use crate::{cgroup::Cgroup, daemon::models::app_snapshot::AppSnapshot};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ChannelEvent {
     WindowAdded {
         window_id: String,
@@ -26,4 +27,8 @@ pub enum ChannelEvent {
     },
     MediaUnitsChanged(HashSet<Cgroup>),
     InhibitedAppsChanged(HashSet<String>),
+
+    ListApps {
+        sender: oneshot::Sender<Vec<AppSnapshot>>,
+    },
 }

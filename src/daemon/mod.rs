@@ -5,6 +5,7 @@ mod policy_router;
 mod usage_tracker;
 
 pub use event_loop::EventLoop;
+use tokio::sync::oneshot;
 
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
@@ -18,9 +19,9 @@ use crate::{
     config::models::{Config, cpu_load_polling::CpuLoadPollingConfig, policies::PoliciesConfig},
     daemon::{
         models::{
+            app_snapshot::AppSnapshot,
             app_state::{AppState, CgroupRefreshResult},
             cpu_sample::CpuSample,
-            tier::Tier,
             unit_state::UnitState,
             wake_signals::WakeSignals,
         },
@@ -248,4 +249,13 @@ fn sample_cpu(cgroups: &HashSet<Cgroup>) -> io::Result<CpuSample> {
     }
 
     Ok(CpuSample::now(usage_usec, throttle_usecs))
+}
+
+impl Daemon {
+    pub fn list_apps(&self) -> Vec<AppSnapshot> {
+        self.apps
+            .values()
+            .map(|app| AppSnapshot::from(app))
+            .collect()
+    }
 }

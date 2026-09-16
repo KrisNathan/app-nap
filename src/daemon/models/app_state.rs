@@ -239,14 +239,36 @@ impl AppState {
 }
 
 impl AppState {
-    pub fn get_cgroups(&self) -> &HashSet<Cgroup> {
-        &self.cgroups
-    }
-    pub fn get_voted_policy(&self) -> Policy {
-        self.voted_policy
-    }
     /// App is polled if not in "performance" tier
     pub fn is_polled(&self) -> bool {
         self.tier != Tier::Performance
+    }
+
+    pub fn get_cgroups(&self) -> &HashSet<Cgroup> {
+        &self.cgroups
+    }
+
+    pub fn get_voted_policy(&self) -> Policy {
+        self.voted_policy
+    }
+
+    pub fn get_window_pid(&self) -> pid_t {
+        self.pid
+    }
+
+    pub fn get_comm(&self) -> &str {
+        &self.comm
+    }
+
+    pub fn get_usage(&self) -> f64 {
+        self.usage
+    }
+
+    pub fn get_throttle(&self) -> f64 {
+        self.throttle
+    }
+
+    pub fn get_window_count(&self) -> usize {
+        self.windows.len()
     }
 }

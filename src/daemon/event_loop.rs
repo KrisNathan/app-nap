@@ -1,3 +1,4 @@
+use log::warn;
 use tokio::{sync::mpsc, time::Interval};
 
 use crate::daemon::{Daemon, channel_event::ChannelEvent};
@@ -64,6 +65,13 @@ impl EventLoop {
                 self.daemon
                     .window_active_changed(window_id, pid, active)
                     .await;
+            }
+
+            ChannelEvent::ListApps { sender } => {
+                let snapshot = self.daemon.list_apps();
+                if let Err(_) = sender.send(snapshot) {
+                    warn!("ListApps requester disconnected before the snapshot was delivered");
+                }
             }
         }
     }

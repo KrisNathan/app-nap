@@ -1,3 +1,4 @@
+pub mod app_snapshot;
 /// Pure business logic
 pub mod app_state;
 pub mod cpu_sample;

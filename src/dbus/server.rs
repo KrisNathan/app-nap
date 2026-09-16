@@ -1,8 +1,8 @@
 use libc::pid_t;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use zbus::{fdo, interface};
 
-use crate::daemon::channel_event::ChannelEvent;
+use crate::daemon::{channel_event::ChannelEvent, models::app_snapshot::AppSnapshot};
 
 pub struct DBusDaemon {
     tx: mpsc::Sender<ChannelEvent>,
@@ -64,6 +64,15 @@ impl DBusDaemon {
             active,
         })
         .await
+    }
+
+    async fn list_apps(&self) -> fdo::Result<Vec<AppSnapshot>> {
+        let (reply, response) = oneshot::channel();
+        self.enqueue(ChannelEvent::ListApps { sender: reply })
+            .await?;
+        response
+            .await
+            .map_err(|_| fdo::Error::Failed("daemon dropped the app state query".into()))
     }
 }
 

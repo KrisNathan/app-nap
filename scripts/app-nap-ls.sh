@@ -11,14 +11,14 @@ usage() {
 usage: app-nap-ls [-v|--verbose] [-j|--json]
 
 Ask the running app-nap daemon which apps it tracks and print each app's
-tier, CPU load state, and currently applied policy.
+voted policy, CPU usage, throttle, and window count.
 
-  -v, --verbose  one block per app, including cgroups and windows
+  -v, --verbose  one block per app
   -j, --json     the raw snapshot as JSON
   -h, --help     show this help
 
 Usage and throttle are in core-equivalents (1.00 = one fully busy core) and
-are only sampled on the background and nap tiers.
+are not sampled under the performance policy.
 EOF
 }
 
@@ -56,9 +56,8 @@ fi
 # busctl reports D-Bus structs positionally; name the fields once, here.
 # The `+ 0` on the doubles drops busctl's exponential literals (0E-21).
 apps="$(jq -c '.data[0] | map({
-  pid: .[0], name: .[1], tier: .[2], load: .[3], policy: .[4],
-  usage: (.[5] + 0), throttle: (.[6] + 0), cgroups: .[7],
-  windows: (.[8] | map({window_id: .[0], minimized: .[1], active: .[2]}))
+  window_pid: .[0], comm: .[1], policy: .[2], usage: (.[3] + 0),
+  throttle: (.[4] + 0), window_count: .[5]
 })' <<<"${reply}")"
 
 if [[ "${format}" == "json" ]]; then
@@ -71,46 +70,39 @@ if [[ "$(jq 'length' <<<"${apps}")" -eq 0 ]]; then
   exit 0
 fi
 
-# Load, usage and throttle are only tracked off the performance tier.
+# Usage and throttle are only tracked off the performance policy.
 if [[ "${format}" == "verbose" ]]; then
   jq -r '.[] | [
-    .pid, .name, .tier, .load, .policy, .usage, .throttle,
-    (.cgroups | join(",")),
-    (.windows | map("\(.window_id) \(if .active then "active" else "inactive" end)\(if .minimized then " minimized" else "" end)") | join(","))
+    .window_pid, .comm, .policy, .usage, .throttle, .window_count
   ] | @tsv' <<<"${apps}" |
     awk -F'\t' '{
       printf "%s (pid %s)\n", ($2 == "" ? "?" : $2), $1
-      printf "  tier       %s\n", $3
-      if ($3 == "performance") {
-        printf "  load       -\n"
+      printf "  policy     %s\n", $3
+      if ($3 == "Performance") {
+        printf "  usage      -\n"
+        printf "  throttle   -\n"
       } else {
-        printf "  load       %s (usage %.2f, throttle %.2f)\n", $4, $6, $7
+        printf "  usage      %.2f\n", $4
+        printf "  throttle   %.2f\n", $5
       }
-      printf "  policy     %s\n", ($5 == "" ? "-" : $5)
-      count = split($8, cgroups, ",")
-      for (i = 1; i <= count; i++) printf "  %-10s %s\n", (i == 1 ? "cgroups" : ""), cgroups[i]
-      count = split($9, windows, ",")
-      for (i = 1; i <= count; i++) printf "  %-10s %s\n", (i == 1 ? "windows" : ""), windows[i]
-      print ""
+      printf "  windows    %s\n\n", $6
     }'
   exit 0
 fi
 
 table="$(jq -r '.[] | [
-    .pid, .name, .tier, .load, .policy, .usage, .throttle, (.windows | length)
+    .window_pid, .comm, .policy, .usage, .throttle, .window_count
   ] | @tsv' <<<"${apps}" |
   awk -F'\t' -v OFS='\t' '
-    BEGIN { print "PID", "APP", "TIER", "LOAD", "POLICY", "USAGE", "THROTTLE", "WINDOWS" }
+    BEGIN { print "PID", "APP", "POLICY", "USAGE", "THROTTLE", "WINDOWS" }
     {
-      load = $4
-      usage = sprintf("%.2f", $6)
-      throttle = sprintf("%.2f", $7)
-      if ($3 == "performance") {
-        load = "-"
+      usage = sprintf("%.2f", $4)
+      throttle = sprintf("%.2f", $5)
+      if ($3 == "Performance") {
         usage = "-"
         throttle = "-"
       }
-      print $1, ($2 == "" ? "?" : $2), $3, load, ($5 == "" ? "-" : $5), usage, throttle, $8
+      print $1, ($2 == "" ? "?" : $2), $3, usage, throttle, $6
     }')"
 
 if command -v column >/dev/null 2>&1; then

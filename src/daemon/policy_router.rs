@@ -1,10 +1,11 @@
 use crate::{
-    actions::Action,
+    actions::{Action, ActionError},
     cgroup::{UnitName, UnitPath},
     config::models::{action::ActionConfig, policies::PoliciesConfig},
     daemon::models::policy::Policy,
 };
 use futures::future::try_join_all;
+use log::warn;
 
 pub struct PolicyRouter {
     performance: Vec<Action>,
@@ -29,7 +30,7 @@ impl PolicyRouter {
     }
 }
 async fn build_actions(
-    actions: &Vec<ActionConfig>,
+    actions: &[ActionConfig],
     conn: &zbus::Connection,
 ) -> zbus::Result<Vec<Action>> {
     try_join_all(
@@ -41,7 +42,7 @@ async fn build_actions(
 }
 
 impl PolicyRouter {
-    fn map_policy_to_actions(&self, policy: Policy) -> &Vec<Action> {
+    fn map_policy_to_actions(&self, policy: Policy) -> &[Action] {
         match policy {
             Policy::Performance => &self.performance,
             Policy::BackgroundIdle => &self.background_idle,
@@ -50,15 +51,62 @@ impl PolicyRouter {
             Policy::NapBusy => &self.nap_busy,
         }
     }
-    pub async fn apply(&self, policy: Policy, unit_path: &UnitPath, unit_name: &UnitName) {
+
+    pub async fn apply(
+        &self,
+        policy: Policy,
+        unit_path: &UnitPath,
+        unit_name: &UnitName,
+    ) -> Result<(), ActionError> {
+        let mut applied = Vec::new();
+
         for action in self.map_policy_to_actions(policy) {
-            action.apply(unit_path, unit_name).await.unwrap(); // pray
+            match action.apply(unit_path, unit_name).await {
+                Ok(()) => applied.push(action),
+                Err(error) => {
+                    rollback_applied(&applied, unit_path, unit_name).await;
+                    return Err(error);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn revert(
+        &self,
+        policy: Policy,
+        unit_path: &UnitPath,
+        unit_name: &UnitName,
+    ) -> Result<(), ActionError> {
+        let mut reverted = Vec::new();
+
+        for action in self.map_policy_to_actions(policy).iter().rev() {
+            match action.revert(unit_path, unit_name).await {
+                Ok(()) => reverted.push(action),
+                Err(error) => {
+                    restore_reverted(&reverted, unit_path, unit_name).await;
+                    return Err(error);
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+async fn rollback_applied(actions: &[&Action], unit_path: &UnitPath, unit_name: &UnitName) {
+    for action in actions.iter().rev() {
+        if let Err(error) = action.revert(unit_path, unit_name).await {
+            warn!("failed to roll back action for unit {unit_name}: {error}");
         }
     }
-    pub async fn revert(&self, policy: Policy, unit_path: &UnitPath, unit_name: &UnitName) {
-        // lifo
-        for action in self.map_policy_to_actions(policy).iter().rev() {
-            action.revert(unit_path, unit_name).await.unwrap(); // pray
+}
+
+async fn restore_reverted(actions: &[&Action], unit_path: &UnitPath, unit_name: &UnitName) {
+    for action in actions.iter().rev() {
+        if let Err(error) = action.apply(unit_path, unit_name).await {
+            warn!("failed to restore action for unit {unit_name}: {error}");
         }
     }
 }

@@ -65,10 +65,17 @@ impl Daemon {
 
         // unit is empty, remove from units
 
-        if let Some(applied) = unit.applied_policy {
-            self.policy_router
+        if let Some(applied) = unit.applied_policy
+            && let Err(error) = self
+                .policy_router
                 .revert(applied, unit_path, &unit.name)
-                .await;
+                .await
+        {
+            warn!(
+                "failed to revert {applied:?} for unit {}: {error}",
+                unit.name
+            );
+            return;
         }
 
         self.units.remove(unit_path);
@@ -199,15 +206,41 @@ impl Daemon {
                 continue;
             };
 
-            if let Some(old_policy) = unit.applied_policy {
-                if old_policy == new_policy {
-                    continue;
-                }
-                self.policy_router.revert(old_policy, key, &unit.name).await;
+            let old_policy = unit.applied_policy;
+            if old_policy == Some(new_policy) {
+                continue;
             }
 
-            self.policy_router.apply(new_policy, key, &unit.name).await;
-            unit.applied_policy = Some(new_policy);
+            if let Some(old_policy) = old_policy
+                && let Err(error) = self.policy_router.revert(old_policy, key, &unit.name).await
+            {
+                warn!(
+                    "failed to revert {old_policy:?} for unit {}: {error}",
+                    unit.name
+                );
+                continue;
+            }
+
+            match self.policy_router.apply(new_policy, key, &unit.name).await {
+                Ok(()) => unit.applied_policy = Some(new_policy),
+                Err(error) => {
+                    warn!(
+                        "failed to apply {new_policy:?} to unit {}: {error}",
+                        unit.name
+                    );
+
+                    if let Some(old_policy) = old_policy
+                        && let Err(restore_error) =
+                            self.policy_router.apply(old_policy, key, &unit.name).await
+                    {
+                        warn!(
+                            "failed to restore {old_policy:?} for unit {}: {restore_error}",
+                            unit.name
+                        );
+                        unit.applied_policy = None;
+                    }
+                }
+            }
         }
     }
 

@@ -41,8 +41,15 @@ impl EventLoop {
                 self.daemon.media_units_changed(cgroups).await;
             }
 
-            ChannelEvent::WindowAdded { window_id, pid } => {
-                self.daemon.window_added(window_id, pid).await;
+            ChannelEvent::WindowAdded {
+                window_id,
+                pid,
+                minimized,
+                active,
+            } => {
+                self.daemon
+                    .window_added(window_id, pid, minimized, active)
+                    .await;
             }
 
             ChannelEvent::WindowRemoved { window_id, pid } => {

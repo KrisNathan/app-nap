@@ -45,9 +45,11 @@ function main() {
     }
     const id = window.internalId.toString();
     const pid = window.pid;
-    debug(`window added: id=${id} pid=${pid}`);
+    const minimized = window.minimized;
+    const active = window.active;
+    debug(`window added: id=${id} pid=${pid} minimized=${minimized} active=${active}`);
 
-    callDBus(SERVICE, PATH, IFACE, "AddWindow", id, pid);
+    callDBus(SERVICE, PATH, IFACE, "AddWindow", id, pid, minimized, active);
 
     window.minimizedChanged.connect(function() {
       const minimized = window.minimized;

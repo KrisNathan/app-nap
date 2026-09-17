@@ -10,6 +10,8 @@ pub enum ChannelEvent {
     WindowAdded {
         window_id: String,
         pid: pid_t,
+        minimized: bool,
+        active: bool,
     },
     WindowRemoved {
         window_id: String,

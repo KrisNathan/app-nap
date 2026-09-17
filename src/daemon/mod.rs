@@ -112,14 +112,20 @@ impl Daemon {
         old.union(&new).cloned().collect()
     }
 
-    pub async fn window_added(&mut self, window_id: String, pid: pid_t) {
+    pub async fn window_added(
+        &mut self,
+        window_id: String,
+        pid: pid_t,
+        minimized: bool,
+        active: bool,
+    ) {
         let comm = process_comm(pid).unwrap(); // pray
         self.apps.entry(pid).or_insert(AppState::new(comm, pid));
 
         let affected = self.sync_membership(pid).await;
 
         if let Some(app) = self.apps.get_mut(&pid) {
-            app.window_added(window_id, false, true, &self.wake_signals);
+            app.window_added(window_id, minimized, active, &self.wake_signals);
         }
 
         self.reconcile_policy(&affected).await;

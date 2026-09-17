@@ -23,11 +23,19 @@ impl DBusDaemon {
 
 #[interface(name = "dev.appnap.AppNap1")]
 impl DBusDaemon {
-    async fn add_window(&self, window_id: &str, pid: pid_t) -> fdo::Result<()> {
+    async fn add_window(
+        &self,
+        window_id: &str,
+        pid: pid_t,
+        minimized: bool,
+        active: bool,
+    ) -> fdo::Result<()> {
         validate_input(window_id, pid)?;
         self.enqueue(ChannelEvent::WindowAdded {
             window_id: window_id.into(),
             pid,
+            minimized,
+            active,
         })
         .await
     }

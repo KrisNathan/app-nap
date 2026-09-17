@@ -52,7 +52,7 @@ impl Action {
     pub async fn from_config(config: &ActionConfig, conn: &zbus::Connection) -> zbus::Result<Self> {
         Ok(match config {
             ActionConfig::Ecore => Action::Ecore {
-                ecore: EcoreAction::new().unwrap().into(),
+                ecore: EcoreAction::new()?.into(),
             },
             ActionConfig::SystemdFreeze => Action::SystemdFreeze {
                 systemd: SystemdDBusProxy::new(conn).await?,

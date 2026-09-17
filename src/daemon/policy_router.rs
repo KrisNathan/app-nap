@@ -4,7 +4,7 @@ use crate::{
     config::models::{action::ActionConfig, policies::PoliciesConfig},
     daemon::models::policy::Policy,
 };
-use futures::future::join_all;
+use futures::future::try_join_all;
 
 pub struct PolicyRouter {
     performance: Vec<Action>,
@@ -15,20 +15,28 @@ pub struct PolicyRouter {
 }
 
 impl PolicyRouter {
-    pub async fn from_config(config: &PoliciesConfig, conn: &zbus::Connection) -> Self {
-        Self {
-            performance: build_actions(&config.performance.actions, conn).await,
-            background_idle: build_actions(&config.background_idle.actions, conn).await,
-            background_busy: build_actions(&config.background_busy.actions, conn).await,
-            nap_idle: build_actions(&config.nap_idle.actions, conn).await,
-            nap_busy: build_actions(&config.nap_busy.actions, conn).await,
-        }
+    pub async fn from_config(
+        config: &PoliciesConfig,
+        conn: &zbus::Connection,
+    ) -> zbus::Result<Self> {
+        Ok(Self {
+            performance: build_actions(&config.performance.actions, conn).await?,
+            background_idle: build_actions(&config.background_idle.actions, conn).await?,
+            background_busy: build_actions(&config.background_busy.actions, conn).await?,
+            nap_idle: build_actions(&config.nap_idle.actions, conn).await?,
+            nap_busy: build_actions(&config.nap_busy.actions, conn).await?,
+        })
     }
 }
-async fn build_actions(actions: &Vec<ActionConfig>, conn: &zbus::Connection) -> Vec<Action> {
-    join_all(actions.iter().map(|action_conf| async move {
-        Action::from_config(action_conf, conn).await.unwrap() // pray
-    }))
+async fn build_actions(
+    actions: &Vec<ActionConfig>,
+    conn: &zbus::Connection,
+) -> zbus::Result<Vec<Action>> {
+    try_join_all(
+        actions
+            .iter()
+            .map(|action_conf| async move { Action::from_config(action_conf, conn).await }),
+    )
     .await
 }
 

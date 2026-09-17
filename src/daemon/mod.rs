@@ -42,14 +42,14 @@ pub struct Daemon {
 }
 
 impl Daemon {
-    pub async fn new(config: &Config, conn: &zbus::Connection) -> Self {
-        Self {
+    pub async fn new(config: &Config, conn: &zbus::Connection) -> zbus::Result<Self> {
+        Ok(Self {
             apps: HashMap::new(),
             units: HashMap::new(),
             wake_signals: WakeSignals::default(),
             cpu_load_polling_config: config.cpu_load_polling.clone(),
-            policy_router: PolicyRouter::from_config(&config.policies, conn).await,
-        }
+            policy_router: PolicyRouter::from_config(&config.policies, conn).await?,
+        })
     }
 
     async fn leave_unit(&mut self, unit_path: &UnitPath, pid: pid_t) {

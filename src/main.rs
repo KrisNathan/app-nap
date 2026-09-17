@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    let daemon = Daemon::new(&conf, &dbus_conn).await;
+    let daemon = Daemon::new(&conf, &dbus_conn).await?;
     let cpu_tick = time::interval(Duration::from_millis(conf.cpu_load_polling.interval_ms));
     let mut event_loop = EventLoop::new(daemon, cpu_tick, rx);
 

@@ -189,6 +189,13 @@ impl AppState {
         );
 
         self.voted_policy = Self::eval_policy(self.tier, self.load);
+
+        // reset last cpu sample if performance
+        if self.voted_policy == Policy::Performance {
+            self.last_cpu_sample = None;
+            self.ticks = 0;
+            self.queued_load = self.load;
+        }
     }
 
     pub fn window_minimized_changed(

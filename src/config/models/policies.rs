@@ -3,11 +3,13 @@ use serde::{Deserialize, Serialize};
 use crate::config::models::action::ActionConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PolicyConfig {
     pub actions: Vec<ActionConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PoliciesConfig {
     pub performance: PolicyConfig,
     pub background_idle: PolicyConfig,

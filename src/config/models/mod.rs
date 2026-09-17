@@ -7,6 +7,7 @@ pub mod cpu_load_polling;
 pub mod policies;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
     pub cpu_load_polling: CpuLoadPollingConfig,

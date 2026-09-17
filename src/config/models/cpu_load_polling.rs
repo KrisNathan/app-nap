@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct CpuLoadPollingConfig {
     pub interval_ms: u64,
     pub idle: CpuLoadPollingIdleConfig,
@@ -18,7 +18,7 @@ impl Default for CpuLoadPollingConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 /// Less than this usage AND throttle level is considered idle.
 pub struct CpuLoadPollingIdleConfig {
     pub usage_thres: f64,
@@ -36,7 +36,7 @@ impl Default for CpuLoadPollingIdleConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 /// More than this usage OR throttle level is considered busy.
 pub struct CpuLoadPollingBusyConfig {
     pub usage_thres: f64,

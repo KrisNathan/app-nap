@@ -8,7 +8,7 @@ SYSTEMD_USER_DIR="${HOME}/.config/systemd/user"
 BIN_PATH="${BIN_DIR}/app-nap"
 APP_NAP_LS_PATH="${BIN_DIR}/app-nap-ls"
 SERVICE_PATH="${SYSTEMD_USER_DIR}/app-nap.service"
-CONFIG_PATH="${CONFIG_DIR}/app-nap.toml"
+CONFIG_PATH="${CONFIG_DIR}/config.toml"
 
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -29,7 +29,7 @@ install -m 0755 "${ROOT_DIR}/target/release/app-nap" "${BIN_PATH}"
 install -m 0755 "${ROOT_DIR}/scripts/app-nap-ls.sh" "${APP_NAP_LS_PATH}"
 
 if [[ ! -f "${CONFIG_PATH}" ]]; then
-  install -m 0644 "${ROOT_DIR}/example/app-nap.toml" "${CONFIG_PATH}"
+  install -m 0644 "${ROOT_DIR}/example/config.toml" "${CONFIG_PATH}"
 fi
 
 cat >"${SERVICE_PATH}" <<EOF

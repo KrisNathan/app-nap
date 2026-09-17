@@ -4,10 +4,10 @@ set -euo pipefail
 BIN_PATH="${HOME}/.local/bin/app-nap"
 APP_NAP_LS_PATH="${HOME}/.local/bin/app-nap-ls"
 CONFIG_DIR="${HOME}/.config/app-nap"
-CONFIG_PATH="${CONFIG_DIR}/app-nap.toml"
+CONFIG_PATH="${CONFIG_DIR}/config.toml"
 SYSTEMD_USER_DIR="${HOME}/.config/systemd/user"
 SERVICE_PATH="${SYSTEMD_USER_DIR}/app-nap.service"
-DEFAULT_CONFIG="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/example/app-nap.toml"
+DEFAULT_CONFIG="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/example/config.toml"
 
 if command -v systemctl >/dev/null 2>&1; then
   systemctl --user disable --now app-nap.service 2>/dev/null || true

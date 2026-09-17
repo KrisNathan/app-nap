@@ -4,6 +4,7 @@ pub mod models;
 mod policy_router;
 
 pub use event_loop::EventLoop;
+use log::warn;
 
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
@@ -119,7 +120,14 @@ impl Daemon {
         minimized: bool,
         active: bool,
     ) {
-        let comm = process_comm(pid).unwrap(); // pray
+        let comm = match process_comm(pid) {
+            Ok(comm) => comm,
+            Err(e) => {
+                warn!("failed to get comm for pid {pid}: {e}");
+                String::new()
+            }
+        };
+
         self.apps.entry(pid).or_insert(AppState::new(comm, pid));
 
         let affected = self.sync_membership(pid).await;

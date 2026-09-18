@@ -34,7 +34,7 @@ impl EventLoop {
                 // otherwise the daemon is fully event-driven.
                 // select! won't .await the tick() if the condition is false
                 // Need MissedTickBehavior::Delay!
-                _ = self.cpu_tick.tick(), if self.daemon.has_polled_apps() => {
+                _ = self.cpu_tick.tick(), if self.daemon.has_polled_groups() => {
                     self.handle_cpu_tick().await;
                 }
             }

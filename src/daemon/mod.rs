@@ -19,20 +19,20 @@ use crate::{
     daemon::{
         models::{
             app_snapshot::AppSnapshot,
-            app_state::{AppState, CgroupRefreshResult},
             cpu_sample::CpuSample,
-            unit_state::UnitState,
+            managed_unit::ManagedUnit,
             wake_signals::WakeSignals,
+            window_group::{CgroupRefreshResult, WindowGroup},
         },
         policy_router::PolicyRouter,
     },
 };
 
 pub struct Daemon {
-    apps: HashMap<pid_t, AppState>,
+    window_groups: HashMap<pid_t, WindowGroup>,
 
     // this is needed because reverting a policy change requires us to know which unit to revert from
-    units: HashMap<UnitPath, UnitState>,
+    units: HashMap<UnitPath, ManagedUnit>,
 
     wake_signals: WakeSignals,
 
@@ -44,7 +44,7 @@ pub struct Daemon {
 impl Daemon {
     pub async fn new(config: &Config, conn: &zbus::Connection) -> zbus::Result<Self> {
         Ok(Self {
-            apps: HashMap::new(),
+            window_groups: HashMap::new(),
             units: HashMap::new(),
             wake_signals: WakeSignals::default(),
             cpu_load_polling_config: config.cpu_load_polling.clone(),
@@ -57,9 +57,9 @@ impl Daemon {
             return;
         };
 
-        unit.members.remove(&pid);
+        unit.voters.remove(&pid);
 
-        if !unit.members.is_empty() {
+        if !unit.voters.is_empty() {
             return;
         }
 
@@ -82,23 +82,24 @@ impl Daemon {
     }
 
     /// Returns affected unit paths.
-    async fn sync_membership(&mut self, pid: pid_t) -> HashSet<UnitPath> {
-        let Some(app) = self.apps.get_mut(&pid) else {
+    async fn link_group_to_units(&mut self, pid: pid_t) -> HashSet<UnitPath> {
+        let Some(group) = self.window_groups.get_mut(&pid) else {
             return HashSet::new();
         };
 
-        let old = app.get_unit_paths().clone();
+        let old = group.get_unit_paths().clone();
 
-        match app.refresh_cgroups() {
+        match group.refresh_cgroups() {
             CgroupRefreshResult::NoChange => return old,
             CgroupRefreshResult::Changed => {}
         }
 
-        let new = app.get_unit_paths().clone();
+        let new = group.get_unit_paths().clone();
         let added = new
             .difference(&old)
             .filter_map(|unit_path| {
-                app.get_cgroups()
+                group
+                    .get_cgroups()
                     .iter()
                     .find(|cgroup| cgroup.get_unit_path() == unit_path)
                     .map(|cgroup| (unit_path.clone(), cgroup.get_unit_name().clone()))
@@ -112,8 +113,8 @@ impl Daemon {
         for (unit_path, unit_name) in added {
             self.units
                 .entry(unit_path)
-                .or_insert(UnitState::new(unit_name, BTreeSet::new()))
-                .members
+                .or_insert(ManagedUnit::new(unit_name, BTreeSet::new()))
+                .voters
                 .insert(pid);
         }
 
@@ -135,31 +136,33 @@ impl Daemon {
             }
         };
 
-        self.apps.entry(pid).or_insert(AppState::new(comm, pid));
+        self.window_groups
+            .entry(pid)
+            .or_insert(WindowGroup::new(comm, pid));
 
-        let affected = self.sync_membership(pid).await;
+        let affected = self.link_group_to_units(pid).await;
 
-        if let Some(app) = self.apps.get_mut(&pid) {
-            app.window_added(window_id, minimized, active, &self.wake_signals);
+        if let Some(group) = self.window_groups.get_mut(&pid) {
+            group.window_added(window_id, minimized, active, &self.wake_signals);
         }
 
         self.reconcile_policy(&affected).await;
     }
 
     pub async fn window_removed(&mut self, window_id: String, pid: pid_t) {
-        let Some(app) = self.apps.get_mut(&pid) else {
+        let Some(group) = self.window_groups.get_mut(&pid) else {
             return;
         };
-        app.window_removed(&window_id, &self.wake_signals);
+        group.window_removed(&window_id, &self.wake_signals);
 
-        let unit_paths = app.get_unit_paths().clone();
-        if app.has_windows() {
+        let unit_paths = group.get_unit_paths().clone();
+        if group.has_windows() {
             self.reconcile_policy(&unit_paths).await;
             return;
         }
 
         // no windows left, remove cgroups
-        self.apps.remove(&pid);
+        self.window_groups.remove(&pid);
         for unit_path in &unit_paths {
             self.leave_unit(unit_path, pid).await;
         }
@@ -172,20 +175,20 @@ impl Daemon {
         pid: pid_t,
         minimized: bool,
     ) {
-        let Some(app) = self.apps.get_mut(&pid) else {
+        let Some(group) = self.window_groups.get_mut(&pid) else {
             return;
         };
-        app.window_minimized_changed(&window_id, minimized, &self.wake_signals);
-        let affected = app.get_unit_paths().clone();
+        group.window_minimized_changed(&window_id, minimized, &self.wake_signals);
+        let affected = group.get_unit_paths().clone();
         self.reconcile_policy(&affected).await;
     }
 
     pub async fn window_active_changed(&mut self, window_id: String, pid: pid_t, active: bool) {
-        let Some(app_state) = self.apps.get_mut(&pid) else {
+        let Some(group) = self.window_groups.get_mut(&pid) else {
             return;
         };
-        app_state.window_active_changed(&window_id, active, &self.wake_signals);
-        let affected = app_state.get_unit_paths().clone();
+        group.window_active_changed(&window_id, active, &self.wake_signals);
+        let affected = group.get_unit_paths().clone();
         self.reconcile_policy(&affected).await;
     }
 
@@ -196,10 +199,10 @@ impl Daemon {
             };
 
             let vote = unit
-                .members
+                .voters
                 .iter()
-                .filter_map(|pid| self.apps.get(pid))
-                .map(|app| app.get_voted_policy())
+                .filter_map(|pid| self.window_groups.get(pid))
+                .map(|group| group.get_policy_vote())
                 .max();
 
             let Some(new_policy) = vote else {
@@ -244,37 +247,38 @@ impl Daemon {
         self.recompute_wake_votes().await;
     }
 
-    /// A wake signal moved; recompute every app's vote and reconcile the
-    /// units whose policy actually changed.
+    /// A wake signal moved; recompute every window group's vote and reconcile
+    /// the units whose policy actually changed.
     async fn recompute_wake_votes(&mut self) {
         let mut affected: HashSet<UnitPath> = HashSet::new();
 
-        for app in self.apps.values_mut() {
-            let before = app.get_voted_policy();
-            app.recompute_vote(&self.wake_signals);
-            if app.get_voted_policy() != before {
-                affected.extend(app.get_unit_paths().iter().cloned());
+        for group in self.window_groups.values_mut() {
+            let before = group.get_policy_vote();
+            group.recompute_vote(&self.wake_signals);
+            if group.get_policy_vote() != before {
+                affected.extend(group.get_unit_paths().iter().cloned());
             }
         }
 
         self.reconcile_policy(&affected).await;
     }
 
-    pub fn has_polled_apps(&self) -> bool {
-        self.apps.values().any(|app| app.is_polled())
+    pub fn has_polled_groups(&self) -> bool {
+        self.window_groups.values().any(|group| group.is_polled())
     }
 
     pub async fn cpu_load_tick(&mut self) {
         let mut affected_unit_paths: HashSet<UnitPath> = HashSet::new();
 
-        for app in self.apps.values_mut().filter(|a| a.is_polled()) {
-            affected_unit_paths.extend(app.get_unit_paths().iter().cloned());
+        for group in self.window_groups.values_mut().filter(|g| g.is_polled()) {
+            affected_unit_paths.extend(group.get_unit_paths().iter().cloned());
 
-            let Ok(sample) = sample_cpu(app.get_cgroups()) else {
+            let Ok(sample) = sample_cpu(group.get_cgroups()) else {
                 continue;
             };
 
-            app.on_cpu_usage_tick(&self.wake_signals, sample, &self.cpu_load_polling_config)
+            group
+                .on_cpu_usage_tick(&self.wake_signals, sample, &self.cpu_load_polling_config)
                 .await;
         }
 
@@ -296,6 +300,6 @@ fn sample_cpu(cgroups: &HashSet<Cgroup>) -> io::Result<CpuSample> {
 
 impl Daemon {
     pub fn list_apps(&self) -> Vec<AppSnapshot> {
-        self.apps.values().map(AppSnapshot::from).collect()
+        self.window_groups.values().map(AppSnapshot::from).collect()
     }
 }

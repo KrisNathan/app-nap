@@ -2,7 +2,7 @@ use libc::pid_t;
 use serde::Serialize;
 use zbus::zvariant::Type;
 
-use crate::daemon::models::{app_state::AppState, policy::Policy};
+use crate::daemon::models::{policy::Policy, window_group::WindowGroup};
 
 #[derive(Debug, Serialize, Type)]
 pub struct AppSnapshot {
@@ -14,15 +14,15 @@ pub struct AppSnapshot {
     pub window_count: usize,
 }
 
-impl From<&AppState> for AppSnapshot {
-    fn from(app: &AppState) -> Self {
+impl From<&WindowGroup> for AppSnapshot {
+    fn from(group: &WindowGroup) -> Self {
         Self {
-            window_pid: app.get_window_pid(),
-            comm: app.get_comm().into(),
-            policy: app.get_voted_policy(),
-            usage: app.get_usage(),
-            throttle: app.get_throttle(),
-            window_count: app.get_window_count(),
+            window_pid: group.get_window_pid(),
+            comm: group.get_comm().into(),
+            policy: group.get_policy_vote(),
+            usage: group.get_usage(),
+            throttle: group.get_throttle(),
+            window_count: group.get_window_count(),
         }
     }
 }

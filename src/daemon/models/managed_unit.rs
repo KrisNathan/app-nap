@@ -4,16 +4,16 @@ use libc::pid_t;
 
 use crate::{cgroup::UnitName, daemon::models::policy::Policy};
 
-pub struct UnitState {
+pub struct ManagedUnit {
     pub name: UnitName,
-    pub members: BTreeSet<pid_t>,
+    pub voters: BTreeSet<pid_t>,
     pub applied_policy: Option<Policy>,
 }
-impl UnitState {
-    pub fn new(name: UnitName, members: BTreeSet<pid_t>) -> Self {
+impl ManagedUnit {
+    pub fn new(name: UnitName, voters: BTreeSet<pid_t>) -> Self {
         Self {
             name,
-            members,
+            voters,
             applied_policy: None,
         }
     }

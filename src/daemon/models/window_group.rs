@@ -4,7 +4,7 @@ use libc::pid_t;
 use log::warn;
 
 use crate::{
-    cgroup::{Cgroup, UnitPath, resolve::related_units},
+    cgroup::{Cgroup, UnitPath, resolve::related_cgroups},
     config::models::cpu_load_polling::CpuLoadPollingConfig,
     daemon::models::{
         cpu_sample::CpuSample, policy::Policy, tier::Tier, wake_signals::WakeSignals,
@@ -22,7 +22,7 @@ pub struct Window {
     pub active: bool,
 }
 
-pub struct AppState {
+pub struct WindowGroup {
     comm: String,
     pid: pid_t,
     /// key: window id
@@ -40,10 +40,10 @@ pub struct AppState {
     last_cpu_sample: Option<CpuSample>,
 
     tier: Tier,
-    voted_policy: Policy,
+    policy_vote: Policy,
 }
 
-impl AppState {
+impl WindowGroup {
     pub fn new(comm: String, pid: pid_t) -> Self {
         Self {
             comm,
@@ -58,7 +58,7 @@ impl AppState {
             throttle: 0.0,
             last_cpu_sample: None,
             tier: Tier::Performance,
-            voted_policy: Policy::Performance,
+            policy_vote: Policy::Performance,
         }
     }
 
@@ -154,9 +154,9 @@ pub enum CgroupRefreshResult {
     Changed,
 }
 
-impl AppState {
+impl WindowGroup {
     pub fn refresh_cgroups(&mut self) -> CgroupRefreshResult {
-        match related_units(self.pid) {
+        match related_cgroups(self.pid) {
             Ok(cgroups) if cgroups != self.cgroups => {
                 self.unit_paths = cgroups
                     .iter()
@@ -174,7 +174,7 @@ impl AppState {
         }
     }
 
-    /// Updates voted_policy
+    /// Updates policy_vote
     pub fn recompute_vote(&mut self, wake_signals: &WakeSignals) {
         let is_any_active = self.windows.values().any(|window| window.active);
         let is_any_unminimized = self.windows.values().any(|window| !window.minimized);
@@ -188,10 +188,10 @@ impl AppState {
             is_playing_media,
         );
 
-        self.voted_policy = Self::eval_policy(self.tier, self.load);
+        self.policy_vote = Self::eval_policy(self.tier, self.load);
 
         // reset last cpu sample if performance
-        if self.voted_policy == Policy::Performance {
+        if self.policy_vote == Policy::Performance {
             self.last_cpu_sample = None;
             self.ticks = 0;
             self.queued_load = self.load;
@@ -251,8 +251,8 @@ impl AppState {
     }
 }
 
-impl AppState {
-    /// App is polled if not in "performance" tier
+impl WindowGroup {
+    /// Window group is polled if not in "performance" tier
     pub fn is_polled(&self) -> bool {
         self.tier != Tier::Performance
     }
@@ -265,8 +265,8 @@ impl AppState {
         &self.unit_paths
     }
 
-    pub fn get_voted_policy(&self) -> Policy {
-        self.voted_policy
+    pub fn get_policy_vote(&self) -> Policy {
+        self.policy_vote
     }
 
     pub fn get_window_pid(&self) -> pid_t {

@@ -5,7 +5,7 @@ use std::io;
 
 use crate::cgroup::{Cgroup, proc_util::ancestor_pids_until_systemd};
 
-pub fn related_units(pid: pid_t) -> io::Result<HashSet<Cgroup>> {
+pub fn related_cgroups(pid: pid_t) -> io::Result<HashSet<Cgroup>> {
     let pids = ancestor_pids_until_systemd(pid)?;
 
     let mut cgroups: HashSet<Cgroup> = HashSet::new();

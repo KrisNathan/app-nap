@@ -1,10 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use libc::pid_t;
-use log::warn;
 
 use crate::{
-    cgroup::{Cgroup, UnitPath, resolve::related_cgroups},
+    cgroup::{Cgroup, UnitPath},
     config::models::cpu_load_polling::CpuLoadPollingConfig,
     daemon::models::{
         cpu_sample::CpuSample, policy::Policy, tier::Tier, wake_signals::WakeSignals,
@@ -149,29 +148,18 @@ impl WindowGroup {
     }
 }
 
-pub enum CgroupRefreshResult {
-    NoChange,
-    Changed,
-}
-
 impl WindowGroup {
-    pub fn refresh_cgroups(&mut self) -> CgroupRefreshResult {
-        match related_cgroups(self.pid) {
-            Ok(cgroups) if cgroups != self.cgroups => {
-                self.unit_paths = cgroups
-                    .iter()
-                    .map(|cgroup| cgroup.get_unit_path().clone())
-                    .collect();
-                self.cgroups = cgroups;
-                self.last_cpu_sample = None;
-                CgroupRefreshResult::Changed
-            }
-            Ok(_) => CgroupRefreshResult::NoChange,
-            Err(e) => {
-                warn!("failed to resolve cgroups for pid {}: {e}", self.pid);
-                CgroupRefreshResult::NoChange
-            }
+    pub fn refresh_cgroups(&mut self, cgroups: HashSet<Cgroup>) {
+        if cgroups == self.cgroups {
+            return;
         }
+
+        self.unit_paths = cgroups
+            .iter()
+            .map(|cgroup| cgroup.get_unit_path().clone())
+            .collect();
+        self.cgroups = cgroups;
+        self.last_cpu_sample = None;
     }
 
     /// Updates policy_vote

@@ -14,15 +14,12 @@ use std::{
 use libc::pid_t;
 
 use crate::{
-    cgroup::{Cgroup, UnitPath, proc_util::process_comm},
+    cgroup::{Cgroup, UnitPath, proc_util::process_comm, resolve::related_cgroups},
     config::models::{Config, cpu_load_polling::CpuLoadPollingConfig},
     daemon::{
         models::{
-            app_snapshot::AppSnapshot,
-            cpu_sample::CpuSample,
-            managed_unit::ManagedUnit,
-            wake_signals::WakeSignals,
-            window_group::{CgroupRefreshResult, WindowGroup},
+            app_snapshot::AppSnapshot, cpu_sample::CpuSample, managed_unit::ManagedUnit,
+            wake_signals::WakeSignals, window_group::WindowGroup,
         },
         policy_router::PolicyRouter,
     },
@@ -87,16 +84,26 @@ impl Daemon {
             return HashSet::new();
         };
 
-        let old = group.get_unit_paths().clone();
+        let old_unit_paths = group.get_unit_paths().clone();
 
-        match group.refresh_cgroups() {
-            CgroupRefreshResult::NoChange => return old,
-            CgroupRefreshResult::Changed => {}
+        let new_cgroups = match related_cgroups(pid) {
+            Ok(cg) => cg,
+            Err(e) => {
+                warn!("failed to resolve cgroups for pid {}: {e}", pid);
+                return old_unit_paths;
+            }
+        };
+
+        group.refresh_cgroups(new_cgroups);
+
+        let new_unit_paths = group.get_unit_paths().clone();
+
+        if old_unit_paths == new_unit_paths {
+            return old_unit_paths;
         }
 
-        let new = group.get_unit_paths().clone();
-        let added = new
-            .difference(&old)
+        let added = new_unit_paths
+            .difference(&old_unit_paths)
             .filter_map(|unit_path| {
                 group
                     .get_cgroups()
@@ -106,7 +113,7 @@ impl Daemon {
             })
             .collect::<Vec<_>>();
 
-        for unit_path in old.difference(&new) {
+        for unit_path in old_unit_paths.difference(&new_unit_paths) {
             self.leave_unit(unit_path, pid).await;
         }
 
@@ -118,7 +125,7 @@ impl Daemon {
                 .insert(pid);
         }
 
-        old.union(&new).cloned().collect()
+        old_unit_paths.union(&new_unit_paths).cloned().collect()
     }
 
     pub async fn window_added(

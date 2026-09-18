@@ -85,7 +85,7 @@ impl EventLoop {
 
             ChannelEvent::ListApps { sender } => {
                 let snapshot = self.daemon.list_apps();
-                if let Err(_) = sender.send(snapshot) {
+                if sender.send(snapshot).is_err() {
                     warn!("ListApps requester disconnected before the snapshot was delivered");
                 }
             }

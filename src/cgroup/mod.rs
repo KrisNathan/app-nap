@@ -188,8 +188,10 @@ mod tests {
             "/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.kde.konsole-39967.scope/main.scope"
         );
         assert_eq!(
-            cgroup.get_unit_path().as_str(),
-            "/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.kde.konsole-39967.scope"
+            cgroup.get_unit_path(),
+            &UnitPath(
+                "/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.kde.konsole-39967.scope".into()
+            )
         );
         assert_eq!(
             cgroup.get_unit_name().as_str(),
@@ -204,7 +206,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(cgroup.get_unit_path().as_str(), cgroup.get_full().as_str());
+        assert_eq!(
+            cgroup.get_unit_path().to_string(),
+            cgroup.get_full().as_str()
+        );
         assert_eq!(cgroup.get_unit_name().as_str(), "app-firefox-42.scope");
     }
 
@@ -230,8 +235,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            cgroup.get_unit_path().as_str(),
-            "/user.slice/user-1000.slice/user@1000.service/app.slice/app-konsole.scope/tab(9).scope/app-zed.service"
+            cgroup.get_unit_path(),
+            &UnitPath(
+                "/user.slice/user-1000.slice/user@1000.service/app.slice/app-konsole.scope/tab(9).scope/app-zed.service".into()
+            )
         );
         assert_eq!(cgroup.get_unit_name().as_str(), "app-zed.service");
     }

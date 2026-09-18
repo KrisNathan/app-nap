@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use futures::StreamExt;
 use log::warn;
 use tokio::sync::mpsc;
@@ -23,15 +21,13 @@ impl MprisWatcher {
     /// Fetches the units of currently playing players and sends them.
     /// Returns false when the daemon's channel is gone.
     async fn refresh(&self) -> bool {
-        let units = self
-            .dbus
-            .get_playing_player_units()
-            .await
-            .unwrap_or_else(|e| {
+        let units = match self.dbus.get_playing_player_units().await {
+            Ok(units) => units,
+            Err(e) => {
                 warn!("failed to poll MPRIS players: {e}");
-                HashSet::new()
-            });
-
+                return true; // don't send MediaUnitsChanged, preserve old state
+            }
+        };
         self.tx
             .send(ChannelEvent::MediaUnitsChanged(units))
             .await

@@ -34,10 +34,6 @@ impl std::fmt::Display for CgroupPath {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UnitPath(String);
 impl UnitPath {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
     /// Returns the PIDs of all processes in this cgroup.
     /// Utilizes /sys/fs/cgroup to read the cgroup.procs file.
     pub fn get_pids(&self) -> io::Result<Vec<pid_t>> {

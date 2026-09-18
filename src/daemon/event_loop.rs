@@ -1,5 +1,10 @@
+use std::time::Duration;
+
 use log::warn;
-use tokio::{sync::mpsc, time::Interval};
+use tokio::{
+    sync::mpsc,
+    time::{Interval, MissedTickBehavior, interval},
+};
 
 use crate::daemon::{Daemon, channel_event::ChannelEvent};
 
@@ -9,7 +14,9 @@ pub struct EventLoop {
     cpu_tick: Interval,
 }
 impl EventLoop {
-    pub fn new(daemon: Daemon, cpu_tick: Interval, rx: mpsc::Receiver<ChannelEvent>) -> Self {
+    pub fn new(daemon: Daemon, poll_period: Duration, rx: mpsc::Receiver<ChannelEvent>) -> Self {
+        let mut cpu_tick = interval(poll_period);
+        cpu_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
         Self {
             daemon,
             rx,
@@ -25,6 +32,8 @@ impl EventLoop {
                 }
                 // The timer only ticks while cpu-load polling has targets
                 // otherwise the daemon is fully event-driven.
+                // select! won't .await the tick() if the condition is false
+                // Need MissedTickBehavior::Delay!
                 _ = self.cpu_tick.tick(), if self.daemon.has_polled_apps() => {
                     self.handle_cpu_tick().await;
                 }

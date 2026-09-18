@@ -7,7 +7,7 @@ mod inhibitor;
 
 use std::{error::Error, time::Duration};
 
-use tokio::{sync::mpsc, time};
+use tokio::sync::mpsc;
 
 use crate::{
     config::load_config,
@@ -41,8 +41,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     let daemon = Daemon::new(&conf, &dbus_conn).await?;
-    let cpu_tick = time::interval(Duration::from_millis(conf.cpu_load_polling.interval_ms));
-    let mut event_loop = EventLoop::new(daemon, cpu_tick, rx);
+    let mut event_loop = EventLoop::new(
+        daemon,
+        Duration::from_millis(conf.cpu_load_polling.interval_ms),
+        rx,
+    );
 
     let dbus_daemon = DBusDaemon::new(tx);
 

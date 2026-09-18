@@ -296,9 +296,6 @@ fn sample_cpu(cgroups: &HashSet<Cgroup>) -> io::Result<CpuSample> {
 
 impl Daemon {
     pub fn list_apps(&self) -> Vec<AppSnapshot> {
-        self.apps
-            .values()
-            .map(|app| AppSnapshot::from(app))
-            .collect()
+        self.apps.values().map(AppSnapshot::from).collect()
     }
 }

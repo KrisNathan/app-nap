@@ -4,7 +4,7 @@ use crate::dbus::client::systemd::SystemdDBusProxy;
 const CPU_QUOTA_UNSET: u64 = u64::MAX;
 
 fn cpu_quota_from_percent(percent: u64) -> u64 {
-    u64::from(percent) * 10_000
+    percent * 10_000
 }
 
 pub async fn apply(

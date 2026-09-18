@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use libc::pid_t;
 
 use crate::{
-    cgroup::{Cgroup, UnitPath},
+    cgroup::UnitPath,
     config::models::cpu_load_polling::CpuLoadPollingConfig,
     daemon::models::{
         cpu_sample::CpuSample, policy::Policy, tier::Tier, wake_signals::WakeSignals,
@@ -26,7 +26,6 @@ pub struct WindowGroup {
     pid: pid_t,
     /// key: window id
     windows: HashMap<String, Window>,
-    cgroups: HashSet<Cgroup>,
     unit_paths: HashSet<UnitPath>,
 
     load: Load,
@@ -48,7 +47,6 @@ impl WindowGroup {
             comm,
             pid,
             windows: HashMap::new(),
-            cgroups: HashSet::new(),
             unit_paths: HashSet::new(),
             load: Load::Busy,
             queued_load: Load::Busy,
@@ -149,16 +147,12 @@ impl WindowGroup {
 }
 
 impl WindowGroup {
-    pub fn refresh_cgroups(&mut self, cgroups: HashSet<Cgroup>) {
-        if cgroups == self.cgroups {
+    pub fn refresh_units(&mut self, unit_paths: HashSet<UnitPath>) {
+        if unit_paths == self.unit_paths {
             return;
         }
 
-        self.unit_paths = cgroups
-            .iter()
-            .map(|cgroup| cgroup.get_unit_path().clone())
-            .collect();
-        self.cgroups = cgroups;
+        self.unit_paths = unit_paths;
         self.last_cpu_sample = None;
     }
 
@@ -166,7 +160,7 @@ impl WindowGroup {
     pub fn recompute_vote(&mut self, wake_signals: &WakeSignals) {
         let is_any_active = self.windows.values().any(|window| window.active);
         let is_any_unminimized = self.windows.values().any(|window| !window.minimized);
-        let is_inhibiting = wake_signals.is_inhibiting(&self.cgroups);
+        let is_inhibiting = wake_signals.is_inhibiting(&self.unit_paths);
         let is_playing_media = wake_signals.is_playing_media(&self.unit_paths);
 
         self.tier = Self::eval_tier(
@@ -243,10 +237,6 @@ impl WindowGroup {
     /// Window group is polled if not in "performance" tier
     pub fn is_polled(&self) -> bool {
         self.tier != Tier::Performance
-    }
-
-    pub fn get_cgroups(&self) -> &HashSet<Cgroup> {
-        &self.cgroups
     }
 
     pub fn get_unit_paths(&self) -> &HashSet<UnitPath> {

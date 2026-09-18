@@ -4,10 +4,10 @@ pub mod resolve;
 
 use libc::pid_t;
 use std::fs;
-use std::hash::Hash;
 use std::io;
 
 use crate::cgroup::cpu_stat::CpuStat;
+use crate::partial_eq_str;
 
 // This doesn't warrant for a macro.
 
@@ -17,8 +17,19 @@ use crate::cgroup::cpu_stat::CpuStat;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CgroupPath(String);
 impl CgroupPath {
-    pub fn as_str(&self) -> &str {
-        &self.0
+    pub fn from_pid(pid: pid_t) -> io::Result<Self> {
+        let contents = fs::read_to_string(format!("/proc/{pid}/cgroup"))?;
+        Self::from_cgroup_full(contents.as_str()).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("not a cgroup v2 line: {}", contents.trim()),
+            )
+        })
+    }
+
+    pub fn from_cgroup_full(cgroup: &str) -> Option<Self> {
+        let cgroup = cgroup.trim().split_once("::")?;
+        Some(Self(cgroup.1.to_owned()))
     }
 }
 impl std::fmt::Display for CgroupPath {
@@ -34,6 +45,10 @@ impl std::fmt::Display for CgroupPath {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UnitPath(String);
 impl UnitPath {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
     /// Returns the PIDs of all processes in this cgroup.
     /// Utilizes /sys/fs/cgroup to read the cgroup.procs file.
     pub fn get_pids(&self) -> io::Result<Vec<pid_t>> {
@@ -63,6 +78,14 @@ impl std::fmt::Display for UnitPath {
         f.write_str(&self.0)
     }
 }
+impl UnitPath {
+    pub fn from_cgroup_path(cgroup: CgroupPath) -> Option<Self> {
+        Some(Self(split_at_nearest_app_unit(&cgroup.0)?.to_owned()))
+    }
+    pub fn get_cpu_stat(&self) -> io::Result<CpuStat> {
+        cpu_stat::get_cpu_stat(self.0.as_str())
+    }
+}
 
 /// The nearest `app-*` unit component alone.
 ///
@@ -81,63 +104,14 @@ impl std::fmt::Display for UnitName {
         f.write_str(&self.0)
     }
 }
-
-/// The three identities of one process cgroup, resolved together.
-///
-/// Full cgroup path, unit path, unit name.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Cgroup {
-    full: CgroupPath,
-    unit_path: UnitPath,
-    unit_name: UnitName,
-}
-
-impl Hash for Cgroup {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.full.hash(state);
+impl From<&UnitPath> for UnitName {
+    fn from(value: &UnitPath) -> Self {
+        Self(value.0.rsplit('/').next().unwrap_or_default().to_owned())
     }
 }
-
-impl Cgroup {
-    /// Parse the contents of `/proc/<pid>/cgroup`.
-    ///
-    /// Returns `None` unless the path is fenced under `/app.slice/` **and**
-    /// contains an `app-*` unit; the nearest (rightmost) one wins.
-    pub fn parse(contents: &str) -> Option<Self> {
-        let full = contents.trim().split_once("::")?.1;
-        let (unit_name, unit_path) = split_at_nearest_app_unit(full)?;
-
-        Some(Self {
-            full: CgroupPath(full.to_owned()),
-            unit_path: UnitPath(unit_path.to_owned()),
-            unit_name: UnitName(unit_name.to_owned()),
-        })
-    }
-
-    pub fn from_pid(pid: pid_t) -> io::Result<Self> {
-        let contents = fs::read_to_string(format!("/proc/{pid}/cgroup"))?;
-        Self::parse(&contents).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("not an app cgroup: {}", contents.trim()),
-            )
-        })
-    }
-
-    pub fn get_full(&self) -> &CgroupPath {
-        &self.full
-    }
-
-    pub fn get_unit_path(&self) -> &UnitPath {
-        &self.unit_path
-    }
-
-    pub fn get_unit_name(&self) -> &UnitName {
-        &self.unit_name
-    }
-
-    pub fn get_cpu_stat(&self) -> io::Result<CpuStat> {
-        cpu_stat::get_cpu_stat(self.full.0.as_str())
+impl From<UnitPath> for UnitName {
+    fn from(value: UnitPath) -> Self {
+        Self::from(&value)
     }
 }
 
@@ -151,96 +125,108 @@ fn is_app_unit(component: &str) -> bool {
 
 /// Split `full` at the nearest `app-*` unit under `/app.slice/`.
 ///
-/// Returns `(unit name, path through that unit)`.
-fn split_at_nearest_app_unit(full: &str) -> Option<(&str, &str)> {
+/// Returns the path through that unit.
+fn split_at_nearest_app_unit(full: &str) -> Option<&str> {
     // Fence: refuse anything outside app.slice before matching names, so an
     // app-* component in session.slice/system.slice can never be a target.
     let inside = full.split("/app.slice/").nth(1)?;
     let fence = full.len() - inside.len();
 
     // Walk left to right and keep the last match: nearest, not top-level.
-    let mut name = None;
-    let mut end = fence;
+    let mut end = None;
     let mut offset = fence;
     for component in inside.split('/') {
         if is_app_unit(component) {
-            name = Some(component);
-            end = offset + component.len();
+            end = Some(offset + component.len());
         }
         offset += component.len() + 1;
     }
 
-    Some((name?, &full[..end]))
+    Some(&full[..end?])
 }
+
+partial_eq_str!(CgroupPath);
+partial_eq_str!(UnitPath);
+partial_eq_str!(UnitName);
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const KONSOLE: &str = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.kde.konsole-39967.scope/main.scope\n";
+    const KONSOLE_TAB: &str = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.kde.konsole-39967.scope/tab(9).scope\n";
+    const KONSOLE_UNIT: &str =
+        "/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.kde.konsole-39967.scope";
+    const FIREFOX: &str =
+        "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-firefox-42.scope\n";
+    const ZED_IN_TAB: &str = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-konsole.scope/tab(9).scope/app-zed.service\n";
+
+    /// Runs both resolution steps. Panics when the contents do not parse, so
+    /// the refusal tests below exercise the fence and not the `0::` split.
+    fn resolve_unit(contents: &str) -> Option<UnitPath> {
+        let full = CgroupPath::from_cgroup_full(contents).expect("test input must parse");
+        UnitPath::from_cgroup_path(full)
+    }
 
     #[test]
-    fn resolves_the_three_identities() {
-        let cgroup = Cgroup::parse(KONSOLE).unwrap();
-
+    fn parses_the_full_path_from_proc_cgroup() {
         assert_eq!(
-            cgroup.get_full().as_str(),
+            CgroupPath::from_cgroup_full(KONSOLE).unwrap(),
             "/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.kde.konsole-39967.scope/main.scope"
         );
+    }
+
+    #[test]
+    fn refuses_a_line_without_the_unified_hierarchy() {
+        assert!(CgroupPath::from_cgroup_full("2:cpu:/user.slice\n").is_none());
+    }
+
+    #[test]
+    fn resolves_the_unit_path() {
+        assert_eq!(resolve_unit(KONSOLE).unwrap(), KONSOLE_UNIT);
+    }
+
+    #[test]
+    fn the_unit_name_is_the_last_component_of_the_unit_path() {
+        let unit_path = resolve_unit(KONSOLE).unwrap();
+
         assert_eq!(
-            cgroup.get_unit_path(),
-            &UnitPath(
-                "/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.kde.konsole-39967.scope".into()
-            )
-        );
-        assert_eq!(
-            cgroup.get_unit_name().as_str(),
+            UnitName::from(&unit_path),
             "app-org.kde.konsole-39967.scope"
         );
     }
 
     #[test]
     fn a_leaf_app_unit_truncates_to_itself() {
-        let cgroup = Cgroup::parse(
-            "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-firefox-42.scope\n",
-        )
-        .unwrap();
+        let unit_path = resolve_unit(FIREFOX).unwrap();
 
         assert_eq!(
-            cgroup.get_unit_path().to_string(),
-            cgroup.get_full().as_str()
+            unit_path,
+            "/user.slice/user-1000.slice/user@1000.service/app.slice/app-firefox-42.scope"
         );
-        assert_eq!(cgroup.get_unit_name().as_str(), "app-firefox-42.scope");
+        assert_eq!(UnitName::from(&unit_path), "app-firefox-42.scope");
     }
 
     #[test]
-    fn fine_cgroups_under_one_unit_share_a_unit_path() {
-        let main = Cgroup::parse(KONSOLE).unwrap();
-        let tab = Cgroup::parse(
-            "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.kde.konsole-39967.scope/tab(9).scope\n",
-        )
-        .unwrap();
+    fn fine_cgroups_under_one_unit_resolve_to_the_same_unit() {
+        let main = resolve_unit(KONSOLE).unwrap();
+        let tab = resolve_unit(KONSOLE_TAB).unwrap();
 
-        assert_ne!(main.get_full(), tab.get_full());
-        assert_eq!(main.get_unit_path(), tab.get_unit_path());
+        assert_eq!(main, KONSOLE_UNIT);
+        assert_eq!(main, tab);
     }
 
     #[test]
     fn nearest_app_unit_wins_over_the_fence_owner() {
         // zed launched from a konsole tab: the foreign app-zed.service is the
         // nearest app-* unit, not konsole's own scope.
-        let cgroup = Cgroup::parse(
-            "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-konsole.scope/tab(9).scope/app-zed.service\n",
-        )
-        .unwrap();
+        let unit_path = resolve_unit(ZED_IN_TAB).unwrap();
 
         assert_eq!(
-            cgroup.get_unit_path(),
-            &UnitPath(
-                "/user.slice/user-1000.slice/user@1000.service/app.slice/app-konsole.scope/tab(9).scope/app-zed.service".into()
-            )
+            unit_path,
+            "/user.slice/user-1000.slice/user@1000.service/app.slice/app-konsole.scope/tab(9).scope/app-zed.service"
         );
-        assert_eq!(cgroup.get_unit_name().as_str(), "app-zed.service");
+        assert_eq!(UnitName::from(&unit_path), "app-zed.service");
     }
 
     #[test]
@@ -248,7 +234,7 @@ mod tests {
         // The fence matches the `/app.slice/` component, not the substring
         // "app.slice" inside "session.slice".
         assert!(
-            Cgroup::parse(
+            resolve_unit(
                 "0::/user.slice/user-1000.slice/user@1000.service/session.slice/app-foo.service\n"
             )
             .is_none()
@@ -258,7 +244,7 @@ mod tests {
     #[test]
     fn refuses_app_unit_outside_the_fence() {
         assert!(
-            Cgroup::parse("0::/system.slice/app-foo.service\n").is_none(),
+            resolve_unit("0::/system.slice/app-foo.service\n").is_none(),
             "an app-* unit outside /app.slice/ must be refused"
         );
     }
@@ -266,7 +252,7 @@ mod tests {
     #[test]
     fn refuses_non_app_unit_under_the_fence() {
         assert!(
-            Cgroup::parse(
+            resolve_unit(
                 "0::/user.slice/user-1000.slice/user@1000.service/app.slice/pipewire.service\n"
             )
             .is_none(),
@@ -276,6 +262,6 @@ mod tests {
 
     #[test]
     fn refuses_a_plain_cgroup() {
-        assert!(Cgroup::parse("0::/some/plain/cgroup\n").is_none());
+        assert!(resolve_unit("0::/some/plain/cgroup\n").is_none());
     }
 }

@@ -1,20 +1,20 @@
 use std::{collections::HashMap, time::Instant};
 
-use crate::cgroup::Cgroup;
+use crate::cgroup::UnitPath;
 
 pub struct CpuSample {
     sample_time: Instant,
 
-    /// CPU usage sum of all cgroups
+    /// CPU usage sum of all units
     usage_usec: u64,
 
-    /// 5 cgroup having 0.2 throttle
-    /// doesn't equal to 1 cgroup having 1 throttle
-    throttle_usecs: HashMap<Cgroup, u64>,
+    /// 5 units at 0.2 throttle
+    /// do not equal 1 unit at 1 throttle
+    throttle_usecs: HashMap<UnitPath, u64>,
 }
 
 impl CpuSample {
-    pub fn now(usage_usec: u64, throttle_usecs: HashMap<Cgroup, u64>) -> Self {
+    pub fn now(usage_usec: u64, throttle_usecs: HashMap<UnitPath, u64>) -> Self {
         Self {
             sample_time: Instant::now(),
             usage_usec,
@@ -38,9 +38,9 @@ impl CpuSample {
         let throttle = self
             .throttle_usecs
             .iter()
-            .filter_map(|(cgroup, now)| {
+            .filter_map(|(unit_path, now)| {
                 prev.throttle_usecs
-                    .get(cgroup)
+                    .get(unit_path)
                     .map(|prev| now.saturating_sub(*prev))
             })
             .max()

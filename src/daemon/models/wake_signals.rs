@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::cgroup::{Cgroup, UnitPath};
+use crate::cgroup::UnitPath;
 
 #[derive(Default)]
 pub struct WakeSignals {
@@ -10,11 +10,11 @@ pub struct WakeSignals {
 }
 
 impl WakeSignals {
-    pub fn is_inhibiting(&self, cgroups: &HashSet<Cgroup>) -> bool {
-        cgroups.iter().any(|cg| {
+    pub fn is_inhibiting(&self, unit_paths: &HashSet<UnitPath>) -> bool {
+        unit_paths.iter().any(|unit_path| {
             self.powerdevil_apps
                 .iter()
-                .any(|app| cg.get_full().as_str().contains(app.as_str()))
+                .any(|app| unit_path.as_str().contains(app.as_str()))
         })
     }
 

@@ -14,7 +14,7 @@ use std::{
 use libc::pid_t;
 
 use crate::{
-    cgroup::{Cgroup, UnitPath, proc_util::process_comm, resolve::related_cgroups},
+    cgroup::{UnitName, UnitPath, proc_util::process_comm, resolve::related_units},
     config::models::{Config, cpu_load_polling::CpuLoadPollingConfig},
     daemon::{
         models::{
@@ -86,15 +86,15 @@ impl Daemon {
 
         let old_unit_paths = group.get_unit_paths().clone();
 
-        let new_cgroups = match related_cgroups(pid) {
-            Ok(cg) => cg,
+        let new_units = match related_units(pid) {
+            Ok(units) => units,
             Err(e) => {
-                warn!("failed to resolve cgroups for pid {}: {e}", pid);
+                warn!("failed to resolve units for pid {}: {e}", pid);
                 return old_unit_paths;
             }
         };
 
-        group.refresh_cgroups(new_cgroups);
+        group.refresh_units(new_units);
 
         let new_unit_paths = group.get_unit_paths().clone();
 
@@ -104,13 +104,7 @@ impl Daemon {
 
         let added = new_unit_paths
             .difference(&old_unit_paths)
-            .filter_map(|unit_path| {
-                group
-                    .get_cgroups()
-                    .iter()
-                    .find(|cgroup| cgroup.get_unit_path() == unit_path)
-                    .map(|cgroup| (unit_path.clone(), cgroup.get_unit_name().clone()))
-            })
+            .map(|unit_path| (unit_path.clone(), UnitName::from(unit_path)))
             .collect::<Vec<_>>();
 
         for unit_path in old_unit_paths.difference(&new_unit_paths) {
@@ -280,7 +274,7 @@ impl Daemon {
         for group in self.window_groups.values_mut().filter(|g| g.is_polled()) {
             affected_unit_paths.extend(group.get_unit_paths().iter().cloned());
 
-            let Ok(sample) = sample_cpu(group.get_cgroups()) else {
+            let Ok(sample) = sample_cpu(group.get_unit_paths()) else {
                 continue;
             };
 
@@ -293,13 +287,15 @@ impl Daemon {
     }
 }
 
-fn sample_cpu(cgroups: &HashSet<Cgroup>) -> io::Result<CpuSample> {
+fn sample_cpu(unit_paths: &HashSet<UnitPath>) -> io::Result<CpuSample> {
     let mut usage_usec: u64 = 0;
-    let mut throttle_usecs: HashMap<Cgroup, u64> = HashMap::new();
-    for cgroup in cgroups {
-        let stat = cgroup.get_cpu_stat()?;
+    let mut throttle_usecs: HashMap<UnitPath, u64> = HashMap::new();
+    // cpu.stat is subtree-inclusive, so a unit nested in another unit in
+    // this set is counted twice.
+    for unit_path in unit_paths {
+        let stat = unit_path.get_cpu_stat()?;
         usage_usec += stat.usage_usec;
-        throttle_usecs.insert(cgroup.clone(), stat.throttled_usec);
+        throttle_usecs.insert(unit_path.clone(), stat.throttled_usec);
     }
 
     Ok(CpuSample::now(usage_usec, throttle_usecs))

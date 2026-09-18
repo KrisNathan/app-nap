@@ -4,6 +4,7 @@ mod config;
 mod daemon;
 mod dbus;
 mod inhibitor;
+mod macros;
 
 use std::{error::Error, time::Duration};
 

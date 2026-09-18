@@ -4,7 +4,7 @@ use libc::pid_t;
 use log::warn;
 use zbus::{Proxy, fdo::DBusProxy, names::OwnedBusName};
 
-use crate::cgroup::{Cgroup, UnitPath};
+use crate::cgroup::{CgroupPath, UnitPath};
 
 pub const MPRIS_PREFIX: &str = "org.mpris.MediaPlayer2.";
 pub const MPRIS_PLAYER_PATH: &str = "/org/mpris/MediaPlayer2";
@@ -87,14 +87,20 @@ impl MprisDBusProxy {
                 }
             };
 
-            match Cgroup::from_pid(pid) {
-                Ok(cgroup) => {
-                    units.insert(cgroup.get_unit_path().clone());
-                }
+            let cg = match CgroupPath::from_pid(pid) {
+                Ok(cg) => cg,
                 Err(e) => {
-                    warn!("Failed to resolve cgroup for player {player} (pid {pid}): {e}")
+                    warn!("Failed to resolve cgroup for player {player} (pid {pid}): {e}");
+                    continue;
                 }
-            }
+            };
+
+            let Some(unit_path) = UnitPath::from_cgroup_path(cg) else {
+                warn!("Not an app cgroup for player {player} (pid {pid})");
+                continue;
+            };
+
+            units.insert(unit_path);
         }
 
         Ok(units)

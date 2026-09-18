@@ -228,17 +228,7 @@ impl Daemon {
                         "failed to apply {new_policy:?} to unit {}: {error}",
                         unit.name
                     );
-
-                    if let Some(old_policy) = old_policy
-                        && let Err(restore_error) =
-                            self.policy_router.apply(old_policy, key, &unit.name).await
-                    {
-                        warn!(
-                            "failed to restore {old_policy:?} for unit {}: {restore_error}",
-                            unit.name
-                        );
-                        unit.applied_policy = None;
-                    }
+                    unit.applied_policy = None;
                 }
             }
         }

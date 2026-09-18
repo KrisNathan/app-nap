@@ -65,6 +65,7 @@ impl Daemon {
 
         // unit is empty, remove from units
 
+        // attempt to revert applied policy (if it fails we dont care)
         if let Some(applied) = unit.applied_policy
             && let Err(error) = self
                 .policy_router
@@ -75,7 +76,6 @@ impl Daemon {
                 "failed to revert {applied:?} for unit {}: {error}",
                 unit.name
             );
-            return;
         }
 
         self.units.remove(unit_path);

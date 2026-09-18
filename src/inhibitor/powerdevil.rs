@@ -19,23 +19,26 @@ impl<'a> PowerDevilInhibitor<'a> {
         Self { dbus, tx }
     }
 
-    async fn active_app_names(&self) -> HashSet<String> {
-        match self.dbus.active_inhibitions().await {
-            Ok(inhibitions) => inhibitions
-                .into_iter()
-                .map(|tuple| ActiveInhibition::from(tuple).app_name)
-                .collect(),
-            Err(e) => {
-                warn!("failed to fetch ActiveInhibitions: {e}");
-                HashSet::new()
-            }
-        }
+    async fn active_app_names(&self) -> zbus::Result<HashSet<String>> {
+        Ok(self
+            .dbus
+            .active_inhibitions()
+            .await?
+            .into_iter()
+            .map(|tuple| ActiveInhibition::from(tuple).app_name)
+            .collect())
     }
 
     /// Fetches the current set and sends it.
     /// Returns false when the daemon's channel is gone.
     async fn refresh(&self) -> bool {
-        let apps = self.active_app_names().await;
+        let apps = match self.active_app_names().await {
+            Ok(apps) => apps,
+            Err(e) => {
+                warn!("failed to fetch ActiveInhibitions: {e}");
+                return true; // don't send InhibittedAppsChanged, preserve old state
+            }
+        };
         self.tx
             .send(ChannelEvent::InhibitedAppsChanged(apps))
             .await

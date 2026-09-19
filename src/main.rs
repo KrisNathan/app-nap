@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         PowerDevilInhibitor::new(PowerDevilDBusProxy::new(&dbus_conn).await?, tx.clone());
     let powerdevil_task = tokio::spawn(async move { powerdevil.watch().await });
 
-    let mpris = MprisWatcher::new(MprisDBusProxy::new(dbus_conn.clone()).await?, tx.clone());
+    let mut mpris = MprisWatcher::new(MprisDBusProxy::new(dbus_conn.clone()).await?, tx.clone());
     let mpris_task = tokio::spawn(async move { mpris.watch().await });
 
     let daemon = Daemon::new(&conf, &dbus_conn).await?;

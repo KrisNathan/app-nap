@@ -86,7 +86,7 @@ impl Daemon {
             return HashSet::new();
         };
 
-        let old_unit_paths = group.get_unit_paths().clone();
+        let old_unit_paths = group.unit_paths().clone();
 
         let new_units = match related_units(pid) {
             Ok(units) => units,
@@ -98,7 +98,7 @@ impl Daemon {
 
         group.refresh_units(new_units);
 
-        let new_unit_paths = group.get_unit_paths().clone();
+        let new_unit_paths = group.unit_paths().clone();
 
         if old_unit_paths == new_unit_paths {
             return old_unit_paths;
@@ -158,7 +158,7 @@ impl Daemon {
         };
         group.window_removed(&window_id, &self.wake_signals);
 
-        let unit_paths = group.get_unit_paths().clone();
+        let unit_paths = group.unit_paths().clone();
         if group.has_windows() {
             self.reconcile_policy(&unit_paths).await;
             return;
@@ -182,7 +182,7 @@ impl Daemon {
             return;
         };
         group.window_minimized_changed(&window_id, minimized, &self.wake_signals);
-        let affected = group.get_unit_paths().clone();
+        let affected = group.unit_paths().clone();
         self.reconcile_policy(&affected).await;
     }
 
@@ -191,7 +191,7 @@ impl Daemon {
             return;
         };
         group.window_active_changed(&window_id, active, &self.wake_signals);
-        let affected = group.get_unit_paths().clone();
+        let affected = group.unit_paths().clone();
         self.reconcile_policy(&affected).await;
     }
 
@@ -205,7 +205,7 @@ impl Daemon {
                 .voters
                 .iter()
                 .filter_map(|pid| self.window_groups.get(pid))
-                .map(|group| group.get_policy_vote())
+                .map(|group| group.policy_vote())
                 .max();
 
             let Some(new_policy) = vote else {
@@ -256,10 +256,10 @@ impl Daemon {
         let mut affected: HashSet<UnitPath> = HashSet::new();
 
         for group in self.window_groups.values_mut() {
-            let before = group.get_policy_vote();
+            let before = group.policy_vote();
             group.recompute_vote(&self.wake_signals);
-            if group.get_policy_vote() != before {
-                affected.extend(group.get_unit_paths().iter().cloned());
+            if group.policy_vote() != before {
+                affected.extend(group.unit_paths().iter().cloned());
             }
         }
 
@@ -274,9 +274,9 @@ impl Daemon {
         let mut affected_unit_paths: HashSet<UnitPath> = HashSet::new();
 
         for group in self.window_groups.values_mut().filter(|g| g.is_polled()) {
-            affected_unit_paths.extend(group.get_unit_paths().iter().cloned());
+            affected_unit_paths.extend(group.unit_paths().iter().cloned());
 
-            let Ok(sample) = sample_cpu(group.get_unit_paths()) else {
+            let Ok(sample) = sample_cpu(group.unit_paths()) else {
                 continue;
             };
 

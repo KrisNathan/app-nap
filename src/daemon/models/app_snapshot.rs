@@ -17,12 +17,12 @@ pub struct AppSnapshot {
 impl From<&WindowGroup> for AppSnapshot {
     fn from(group: &WindowGroup) -> Self {
         Self {
-            window_pid: group.get_window_pid(),
-            comm: group.get_comm().into(),
-            policy: group.get_policy_vote(),
-            usage: group.get_usage(),
-            throttle: group.get_throttle(),
-            window_count: group.get_window_count(),
+            window_pid: group.window_pid(),
+            comm: group.comm().into(),
+            policy: group.policy_vote(),
+            usage: group.usage(),
+            throttle: group.throttle(),
+            window_count: group.window_count(),
         }
     }
 }

@@ -239,31 +239,31 @@ impl WindowGroup {
         self.tier != Tier::Performance
     }
 
-    pub fn get_unit_paths(&self) -> &HashSet<UnitPath> {
+    pub fn unit_paths(&self) -> &HashSet<UnitPath> {
         &self.unit_paths
     }
 
-    pub fn get_policy_vote(&self) -> Policy {
+    pub fn policy_vote(&self) -> Policy {
         self.policy_vote
     }
 
-    pub fn get_window_pid(&self) -> pid_t {
+    pub fn window_pid(&self) -> pid_t {
         self.pid
     }
 
-    pub fn get_comm(&self) -> &str {
+    pub fn comm(&self) -> &str {
         &self.comm
     }
 
-    pub fn get_usage(&self) -> f64 {
+    pub fn usage(&self) -> f64 {
         self.usage
     }
 
-    pub fn get_throttle(&self) -> f64 {
+    pub fn throttle(&self) -> f64 {
         self.throttle
     }
 
-    pub fn get_window_count(&self) -> usize {
+    pub fn window_count(&self) -> usize {
         self.windows.len()
     }
 }

@@ -1,13 +1,16 @@
 use std::{fs, io};
 
+use crate::cgroup::UnitPath;
+
 #[derive(Debug, Clone, Copy)]
 pub struct CpuStat {
     pub usage_usec: u64,
     pub throttled_usec: u64,
 }
 
-pub fn get_cpu_stat(cgroup_path: &str) -> io::Result<CpuStat> {
-    let stat_path = format!("/sys/fs/cgroup{cgroup_path}/cpu.stat");
+/// Reads `cpu.stat` from given unit path in /sys/fs/cgroup.
+pub fn get_cpu_stat(unit_path: &UnitPath) -> io::Result<CpuStat> {
+    let stat_path = format!("/sys/fs/cgroup{}/cpu.stat", unit_path.as_str());
     let content = fs::read_to_string(&stat_path)?;
     parse_cpu_stat(&content)
         .map_err(|err| io::Error::new(err.kind(), format!("{stat_path}: {err}")))

@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use zbus::{MatchRule, MessageStream, message::Type, names::OwnedBusName};
 
 use crate::{
-    cgroup::{CgroupPath, UnitPath},
+    cgroup::{UnitPath, procfs::cgroup_path_from_pid},
     daemon::channel_event::ChannelEvent,
     dbus::client::mpris::{MPRIS_PLAYER_PATH, MPRIS_PREFIX, MprisDBusProxy},
 };
@@ -61,7 +61,7 @@ impl MprisWatcher {
             }
         };
 
-        let cgroup = match CgroupPath::from_pid(pid) {
+        let cgroup = match cgroup_path_from_pid(pid) {
             Ok(cgroup) => cgroup,
             Err(e) => {
                 warn!("failed to resolve cgroup for player {player} (pid {pid}): {e}");
@@ -172,6 +172,8 @@ fn update_playing(
 
 #[cfg(test)]
 mod tests {
+    use crate::cgroup::CgroupPath;
+
     use super::*;
 
     fn make_player(name: &str) -> OwnedBusName {

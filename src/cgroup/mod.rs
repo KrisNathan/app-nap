@@ -1,12 +1,8 @@
 pub mod cpu_stat;
-pub mod proc_util;
+pub mod procfs;
 pub mod resolve;
+pub mod sysfs;
 
-use libc::pid_t;
-use std::fs;
-use std::io;
-
-use crate::cgroup::cpu_stat::CpuStat;
 use crate::partial_eq_str;
 
 // This doesn't warrant for a macro.
@@ -17,16 +13,6 @@ use crate::partial_eq_str;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CgroupPath(String);
 impl CgroupPath {
-    pub fn from_pid(pid: pid_t) -> io::Result<Self> {
-        let contents = fs::read_to_string(format!("/proc/{pid}/cgroup"))?;
-        Self::from_cgroup_full(contents.as_str()).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("not a cgroup v2 line: {}", contents.trim()),
-            )
-        })
-    }
-
     pub fn from_cgroup_full(cgroup: &str) -> Option<Self> {
         let cgroup = cgroup.trim().split_once("::")?;
         Some(Self(cgroup.1.to_owned()))
@@ -48,30 +34,6 @@ impl UnitPath {
     pub fn as_str(&self) -> &str {
         &self.0
     }
-
-    /// Returns the PIDs of all processes in this cgroup.
-    /// Utilizes /sys/fs/cgroup to read the cgroup.procs file.
-    pub fn get_pids(&self) -> io::Result<Vec<pid_t>> {
-        let mut pids = Vec::new();
-        let mut pending: Vec<std::path::PathBuf> = vec![format!("/sys/fs/cgroup{self}").into()];
-
-        while let Some(path) = pending.pop() {
-            pids.extend(
-                fs::read_to_string(path.join("cgroup.procs"))?
-                    .lines()
-                    .filter_map(|line| line.trim().parse::<pid_t>().ok()),
-            );
-
-            for entry in fs::read_dir(path)? {
-                let entry = entry?;
-                if entry.file_type()?.is_dir() {
-                    pending.push(entry.path());
-                }
-            }
-        }
-
-        Ok(pids)
-    }
 }
 impl std::fmt::Display for UnitPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -81,9 +43,6 @@ impl std::fmt::Display for UnitPath {
 impl UnitPath {
     pub fn from_cgroup_path(cgroup: CgroupPath) -> Option<Self> {
         Some(Self(split_at_nearest_app_unit(&cgroup.0)?.to_owned()))
-    }
-    pub fn get_cpu_stat(&self) -> io::Result<CpuStat> {
-        cpu_stat::get_cpu_stat(self.0.as_str())
     }
 }
 

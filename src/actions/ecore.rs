@@ -1,4 +1,4 @@
-use crate::cgroup::UnitPath;
+use crate::cgroup::{UnitPath, sysfs::get_unit_pids};
 use libc::{self, cpu_set_t, pid_t};
 use std::fs;
 use std::io;
@@ -42,7 +42,7 @@ impl EcoreAction {
 }
 
 fn set_affinity_for_cgroup(unit_path: &UnitPath, cpuset: &cpu_set_t) -> io::Result<()> {
-    let pids = unit_path.get_pids()?;
+    let pids = get_unit_pids(unit_path)?;
 
     for p in pids {
         // A pid may have exited between enumeration and the syscall; treat

@@ -14,7 +14,9 @@ use std::{
 use libc::pid_t;
 
 use crate::{
-    cgroup::{UnitName, UnitPath, proc_util::process_comm, resolve::related_units},
+    cgroup::{
+        UnitName, UnitPath, cpu_stat::get_cpu_stat, procfs::process_comm, resolve::related_units,
+    },
     config::models::{Config, cpu_load_polling::CpuLoadPollingConfig},
     daemon::{
         models::{
@@ -293,7 +295,7 @@ fn sample_cpu(unit_paths: &HashSet<UnitPath>) -> io::Result<CpuSample> {
     // cpu.stat is subtree-inclusive, so a unit nested in another unit in
     // this set is counted twice.
     for unit_path in unit_paths {
-        let stat = unit_path.get_cpu_stat()?;
+        let stat = get_cpu_stat(unit_path)?;
         usage_usec += stat.usage_usec;
         throttle_usecs.insert(unit_path.clone(), stat.throttled_usec);
     }

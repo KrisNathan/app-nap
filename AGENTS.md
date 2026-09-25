@@ -10,5 +10,5 @@ MUST activate the following skills:
 ## Explanation Style
 
 - simple-english strict
-- Prefer bullet points
+- Prefer bullet points where it makes sense
 - Diagrams are appreciated

@@ -6,15 +6,10 @@ use crate::{
     cgroup::UnitPath,
     config::models::cpu_load_polling::CpuLoadPollingConfig,
     daemon::models::{
-        cpu_sample::CpuSample, policy::Policy, tier::Tier, wake_signals::WakeSignals,
+        Load, LoadTracker, cpu_sample::CpuSample, policy::Policy, tier::Tier,
+        wake_signals::WakeSignals,
     },
 };
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum Load {
-    Busy,
-    Idle,
-}
 
 pub struct Window {
     pub minimized: bool,
@@ -27,16 +22,7 @@ pub struct WindowGroup {
     /// key: window id
     windows: HashMap<String, Window>,
     unit_paths: HashSet<UnitPath>,
-
-    load: Load,
-    queued_load: Load,
-    ticks: u64,
-
-    usage: f64,
-    throttle: f64,
-
-    last_cpu_sample: Option<CpuSample>,
-
+    load_tracker: LoadTracker,
     tier: Tier,
     policy_vote: Policy,
 }
@@ -48,12 +34,7 @@ impl WindowGroup {
             pid,
             windows: HashMap::new(),
             unit_paths: HashSet::new(),
-            load: Load::Busy,
-            queued_load: Load::Busy,
-            ticks: 0,
-            usage: 0.0,
-            throttle: 0.0,
-            last_cpu_sample: None,
+            load_tracker: LoadTracker::new(),
             tier: Tier::Performance,
             policy_vote: Policy::Performance,
         }
@@ -63,59 +44,17 @@ impl WindowGroup {
         !self.windows.is_empty()
     }
 
-    pub async fn on_cpu_usage_tick(
+    pub fn on_cpu_usage_tick(
         &mut self,
         wake_signals: &WakeSignals,
         new_cpu_sample: CpuSample,
         config: &CpuLoadPollingConfig,
     ) {
-        let Some(last_cpu_sample) = &self.last_cpu_sample else {
-            self.last_cpu_sample = Some(new_cpu_sample);
+        let Some(_) = self.load_tracker.on_cpu_usage_tick(new_cpu_sample, config) else {
             return;
         };
 
-        let Some((usage, throttle)) = new_cpu_sample.delta_since(last_cpu_sample) else {
-            return;
-        };
-
-        self.last_cpu_sample = Some(new_cpu_sample);
-
-        self.usage = usage;
-        self.throttle = throttle;
-
-        let Some(candidate) = Self::eval_next_load(usage, throttle, config) else {
-            return;
-        };
-
-        if candidate != self.queued_load {
-            self.queued_load = candidate;
-            self.ticks = 1;
-        } else {
-            self.ticks += 1;
-        }
-
-        let confirm_tick = match self.queued_load {
-            Load::Idle => config.idle.confirm_ticks,
-            Load::Busy => config.busy.confirm_ticks,
-        };
-
-        if self.ticks >= confirm_tick {
-            self.ticks = 0;
-            if self.load != self.queued_load {
-                self.load = self.queued_load;
-                self.recompute_vote(wake_signals);
-            }
-        }
-    }
-
-    fn eval_next_load(usage: f64, throttle: f64, config: &CpuLoadPollingConfig) -> Option<Load> {
-        if usage < config.idle.usage_thres && throttle < config.idle.throttle_thres {
-            Some(Load::Idle)
-        } else if usage > config.busy.usage_thres || throttle > config.busy.throttle_thres {
-            Some(Load::Busy)
-        } else {
-            None
-        }
+        self.recompute_vote(wake_signals);
     }
 
     fn eval_tier(
@@ -153,7 +92,7 @@ impl WindowGroup {
         }
 
         self.unit_paths = unit_paths;
-        self.last_cpu_sample = None;
+        self.load_tracker.clear_baseline();
     }
 
     /// Updates policy_vote
@@ -170,13 +109,11 @@ impl WindowGroup {
             is_playing_media,
         );
 
-        self.policy_vote = Self::eval_policy(self.tier, self.load);
+        self.policy_vote = Self::eval_policy(self.tier, self.load_tracker.load());
 
         // reset last cpu sample if performance
         if self.policy_vote == Policy::Performance {
-            self.last_cpu_sample = None;
-            self.ticks = 0;
-            self.queued_load = self.load;
+            self.load_tracker.reset();
         }
     }
 
@@ -256,11 +193,11 @@ impl WindowGroup {
     }
 
     pub fn usage(&self) -> f64 {
-        self.usage
+        self.load_tracker.usage()
     }
 
     pub fn throttle(&self) -> f64 {
-        self.throttle
+        self.load_tracker.throttle()
     }
 
     pub fn window_count(&self) -> usize {

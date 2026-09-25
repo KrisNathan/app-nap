@@ -280,9 +280,7 @@ impl Daemon {
                 continue;
             };
 
-            group
-                .on_cpu_usage_tick(&self.wake_signals, sample, &self.cpu_load_polling_config)
-                .await;
+            group.on_cpu_usage_tick(&self.wake_signals, sample, &self.cpu_load_polling_config);
         }
 
         self.reconcile_policy(&affected_unit_paths).await;

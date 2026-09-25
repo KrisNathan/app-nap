@@ -2,6 +2,8 @@ use std::time::Duration;
 
 use log::warn;
 use tokio::{
+    io,
+    signal::unix::{SignalKind, signal},
     sync::mpsc,
     time::{Interval, MissedTickBehavior, interval},
 };
@@ -23,13 +25,21 @@ impl EventLoop {
             cpu_tick,
         }
     }
-    pub async fn serve(&mut self) {
+    pub async fn serve(&mut self) -> io::Result<()> {
+        let mut sigint = signal(SignalKind::interrupt())?;
+        let mut sigterm = signal(SignalKind::terminate())?;
+
+        let mut result = Ok(());
         loop {
             tokio::select! {
                 event = self.rx.recv() => {
-                    let Some(event) = event else { return };
+                    let Some(event) = event else {
+                        result = Err(io::Error::other("channel closed"));
+                        break;
+                    };
                     self.handle_event(event).await;
                 }
+
                 // The timer only ticks while cpu-load polling has targets
                 // otherwise the daemon is fully event-driven.
                 // select! won't .await the tick() if the condition is false
@@ -37,8 +47,18 @@ impl EventLoop {
                 _ = self.cpu_tick.tick(), if self.daemon.has_polled_groups() => {
                     self.handle_cpu_tick().await;
                 }
+
+                _ = sigint.recv() => {
+                    break;
+                }
+                _ = sigterm.recv() => {
+                    break;
+                }
             }
         }
+
+        self.daemon.exit().await;
+        result
     }
     async fn handle_event(&mut self, event: ChannelEvent) {
         match event {

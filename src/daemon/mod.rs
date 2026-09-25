@@ -285,6 +285,19 @@ impl Daemon {
 
         self.reconcile_policy(&affected_unit_paths).await;
     }
+
+    pub async fn exit(&self) {
+        for (unit_path, unit) in &self.units {
+            if let Some(policy) = unit.applied_policy
+                && let Err(error) = self
+                    .policy_router
+                    .revert(policy, unit_path, &unit.name)
+                    .await
+            {
+                warn!("failed to revert policy for unit {}: {}", unit.name, error);
+            }
+        }
+    }
 }
 
 fn sample_cpu(unit_paths: &HashSet<UnitPath>) -> io::Result<CpuSample> {

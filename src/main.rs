@@ -53,8 +53,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     dbus_conn.request_name("dev.appnap.AppNap").await?;
 
     tokio::select! {
-        _ = event_loop.serve() => {
-            Err(std::io::Error::other("daemon event loop exited unexpectedly").into())
+        result = event_loop.serve() => {
+            result?;
+            Ok(())
         }
         result = powerdevil_task => {
             result?;

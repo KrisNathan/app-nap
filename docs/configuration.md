@@ -93,7 +93,7 @@ confirm_ticks  = 1 # we want apps to "wake up" quickly if they are supposed to b
 
 ### Policies
 
-A policy is a profile that lists the actions to apply to an app. Each policy has its own list of actions. The run conditions of the policies are not configurable. For the run conditions, see the [model documentation](../model.md).
+A policy is a profile that lists the actions to apply to an app. Each policy has its own list of actions. The run conditions of the policies are not configurable. For the run conditions, see [Policy Run Conditions](architecture.md#policy-run-conditions).
 
 The 5 policies are `performance`, `background_busy`, `background_idle`, `nap_busy`, and `nap_idle`.
 

@@ -5,6 +5,8 @@ so the performance cores (P-cores) can reach deeper idle states. It requires a
 hybrid Intel CPU (Alder Lake and newer) that exposes
 `/sys/devices/cpu_atom/cpus`.
 
+I believe the added benefit of this for newer Intel chips with low power islands is that it encourages cache locality by pushing napped apps onto the E-cores. This is something newer kernels already try to do with new scheduler patches, but our daemon explicitly pins it.
+
 The action auto-detects the E-core and online CPU sets at startup from the
 kernel, so no manual configuration is needed:
 

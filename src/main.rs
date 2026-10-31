@@ -1,18 +1,22 @@
-mod action;
+mod actions;
+mod cgroup;
 mod config;
 mod daemon;
-mod inhibit;
-mod media;
-mod systemd;
+mod dbus;
+mod inhibitor;
+mod macros;
 
-use std::{error::Error, future::pending};
+use std::{error::Error, time::Duration};
+
+use tokio::sync::mpsc;
 
 use crate::{
-    config::{ConfigService, toml::TomlConfigService},
-    daemon::{dbus::DBusDaemon, service::Daemon, tier_policy_set::TierPolicySet},
-    inhibit::kde::KdeInhibitService,
-    media::mpris::MprisMediaService,
-    systemd::dbus_client::SystemdDbusClient,
+    config::load_config,
+    daemon::{Daemon, EventLoop, channel_event::ChannelEvent},
+    dbus::client::mpris::MprisDBusProxy,
+    dbus::client::powerdevil::PowerDevilDBusProxy,
+    dbus::server::DBusDaemon,
+    inhibitor::{mpris::MprisWatcher, powerdevil::PowerDevilInhibitor},
 };
 
 #[tokio::main]
@@ -21,17 +25,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
     logger.target(env_logger::Target::Stdout).init();
 
-    let mut config_service = TomlConfigService::new();
-    config_service.load()?;
+    let conf = load_config()?;
 
-    let dbus_conn = zbus::Connection::session().await?; // it's Arc under the hood so .clone is ok apparently
-    let systemd_client = SystemdDbusClient::new(dbus_conn.clone());
-    let tier_policies = TierPolicySet::from_config(config_service.get_config(), systemd_client);
-    let inhibit_service = KdeInhibitService::new(dbus_conn.clone());
-    let media_service = MprisMediaService::new(dbus_conn.clone());
+    let dbus_conn = zbus::Connection::session().await?; // it's Arc under the hood so .clone is to be expected
+    let (tx, rx) = mpsc::channel::<ChannelEvent>(32);
 
-    let daemon = Daemon::new(tier_policies, inhibit_service, media_service);
-    let dbus_daemon = DBusDaemon::new(daemon);
+    let powerdevil =
+        PowerDevilInhibitor::new(PowerDevilDBusProxy::new(&dbus_conn).await?, tx.clone());
+    let powerdevil_task = tokio::spawn(async move { powerdevil.watch().await });
+
+    let mut mpris = MprisWatcher::new(MprisDBusProxy::new(dbus_conn.clone()).await?, tx.clone());
+    let mpris_task = tokio::spawn(async move { mpris.watch().await });
+
+    let daemon = Daemon::new(&conf, &dbus_conn).await?;
+    let mut event_loop = EventLoop::new(
+        daemon,
+        Duration::from_millis(conf.cpu_load_polling.interval_ms),
+        rx,
+    );
+
+    let dbus_daemon = DBusDaemon::new(tx);
 
     dbus_conn
         .object_server()
@@ -39,6 +52,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
     dbus_conn.request_name("dev.appnap.AppNap").await?;
 
-    pending::<()>().await;
-    Ok(())
+    tokio::select! {
+        result = event_loop.serve() => {
+            result?;
+            Ok(())
+        }
+        result = powerdevil_task => {
+            result?;
+            Err(std::io::Error::other("PowerDevil watcher exited unexpectedly").into())
+        }
+        result = mpris_task => {
+            result??;
+            Err(std::io::Error::other("MPRIS watcher exited unexpectedly").into())
+        }
+    }
 }

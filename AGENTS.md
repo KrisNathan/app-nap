@@ -4,11 +4,11 @@
 
 MUST activate the following skills:
 
-- /simple-english
+- /asd-ste100
 - /find-docs
 
 ## Explanation Style
 
-- simple-english strict
+- asd-ste100
 - Prefer bullet points where it makes sense
 - Diagrams are appreciated

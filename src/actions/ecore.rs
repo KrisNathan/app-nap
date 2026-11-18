@@ -1,4 +1,4 @@
-use crate::cgroup::{UnitPath, sysfs::get_unit_pids};
+use crate::cgroup::{UnitPath, sysfs::get_unit_tids};
 use libc::{self, cpu_set_t, pid_t};
 use log::warn;
 use std::fs;
@@ -14,7 +14,7 @@ use std::mem;
 /// format: a comma-separated list of single numbers and `start-end` ranges
 /// (e.g. `0-3,8-11,15`).
 ///
-/// `apply` pins every PID in the app's cgroup to the E-cores;
+/// `apply` pins every TID in the app's cgroup to the E-cores;
 /// `revert` restores them to all online cores. Applying affinity to the
 /// whole cgroup matches the `SystemSignalController` behavior so child
 /// processes are throttled too.
@@ -64,12 +64,12 @@ fn get_available() -> io::Result<EcoreAction> {
 }
 
 fn set_affinity_for_cgroup(unit_path: &UnitPath, cpuset: &cpu_set_t) -> io::Result<()> {
-    let pids = get_unit_pids(unit_path)?;
+    let tids = get_unit_tids(unit_path)?;
 
-    for p in pids {
-        // A pid may have exited between enumeration and the syscall; treat
+    for t in tids {
+        // A thread may have exited between enumeration and the syscall; treat
         // ESRCH as success so a racing exit doesn't fail the whole nap.
-        match set_affinity(p, cpuset) {
+        match set_affinity(t, cpuset) {
             Ok(()) => {}
             Err(err) if err.raw_os_error() == Some(libc::ESRCH) => {}
             Err(err) => return Err(err),
@@ -79,10 +79,10 @@ fn set_affinity_for_cgroup(unit_path: &UnitPath, cpuset: &cpu_set_t) -> io::Resu
     Ok(())
 }
 
-fn set_affinity(pid: pid_t, cpuset: &cpu_set_t) -> io::Result<()> {
-    // SAFETY: `cpuset` is a fully initialized cpu_set_t; pid is a process id we
+fn set_affinity(tid: pid_t, cpuset: &cpu_set_t) -> io::Result<()> {
+    // SAFETY: `cpuset` is a fully initialized cpu_set_t; tid is a thread id we
     // enumerated from the cgroup.
-    let rc = unsafe { libc::sched_setaffinity(pid, mem::size_of_val(cpuset), cpuset) };
+    let rc = unsafe { libc::sched_setaffinity(tid, mem::size_of_val(cpuset), cpuset) };
     if rc == 0 {
         Ok(())
     } else {

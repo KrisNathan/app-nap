@@ -111,9 +111,9 @@ impl WindowGroup {
 
         self.policy_vote = Self::eval_policy(self.tier, self.load_tracker.load());
 
-        // reset last cpu sample if performance
+        // pause tracker if performance
         if self.policy_vote == Policy::Performance {
-            self.load_tracker.reset();
+            self.load_tracker.pause();
         }
     }
 

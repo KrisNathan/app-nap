@@ -78,11 +78,17 @@ impl LoadTracker {
         self.last_cpu_sample = None;
     }
 
-    /// Resets last_cpu_sample to None, ticks to 0, and queued_load to current load
-    pub fn reset(&mut self) {
+    /// Used to pause tracker when app enters performance mode
+    /// Resets:
+    /// - last_cpu_sample to None
+    /// - ticks to 0
+    /// - queued_load to Busy
+    /// - load to Busy
+    pub fn pause(&mut self) {
+        self.load = Load::Busy;
+        self.queued_load = Load::Busy;
         self.last_cpu_sample = None;
         self.ticks = 0;
-        self.queued_load = self.load;
     }
 
     pub fn load(&self) -> Load {

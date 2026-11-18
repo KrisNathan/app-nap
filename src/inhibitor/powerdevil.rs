@@ -25,7 +25,9 @@ impl<'a> PowerDevilInhibitor<'a> {
             .active_inhibitions()
             .await?
             .into_iter()
-            .map(|tuple| ActiveInhibition::from(tuple).app_name)
+            .map(ActiveInhibition::from)
+            .filter(|inhibition| !inhibition.app_name.is_empty())
+            .map(|inhibition| inhibition.app_name)
             .collect())
     }
 

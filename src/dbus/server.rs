@@ -21,7 +21,7 @@ impl DBusDaemon {
     }
 }
 
-#[interface(name = "dev.appnap.AppNap1")]
+#[interface(name = "dev.appnap.AppNap1", spawn = false)]
 impl DBusDaemon {
     async fn add_window(
         &self,

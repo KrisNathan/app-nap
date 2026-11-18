@@ -28,12 +28,9 @@ pub enum ActionError {
     SystemdCpuWeight(#[source] zbus::Error),
 }
 
-// cpu_set_t is 128 bytes, so Ecore dwarfs the other variants; the enum has
-// few long-lived instances, so the size doesn't matter.
-#[allow(clippy::large_enum_variant)]
 pub enum Action {
     Ecore {
-        ecore: Box<EcoreAction>,
+        ecore: EcoreAction,
     },
     SystemdFreeze {
         systemd: SystemdDBusProxy<'static>,
@@ -52,7 +49,7 @@ impl Action {
     pub async fn from_config(config: &ActionConfig, conn: &zbus::Connection) -> zbus::Result<Self> {
         Ok(match config {
             ActionConfig::Ecore => Action::Ecore {
-                ecore: EcoreAction::new()?.into(),
+                ecore: EcoreAction::new(),
             },
             ActionConfig::SystemdFreeze => Action::SystemdFreeze {
                 systemd: SystemdDBusProxy::new(conn).await?,

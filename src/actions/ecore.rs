@@ -1,5 +1,6 @@
 use crate::cgroup::{UnitPath, sysfs::get_unit_pids};
 use libc::{self, cpu_set_t, pid_t};
+use log::warn;
 use std::fs;
 use std::io;
 use std::mem;
@@ -13,32 +14,53 @@ use std::mem;
 /// format: a comma-separated list of single numbers and `start-end` ranges
 /// (e.g. `0-3,8-11,15`).
 ///
-/// `send_stop` pins every PID in the app's cgroup to the E-cores;
-/// `send_cont` restores them to all online cores. Applying affinity to the
+/// `apply` pins every PID in the app's cgroup to the E-cores;
+/// `revert` restores them to all online cores. Applying affinity to the
 /// whole cgroup matches the `SystemSignalController` behavior so child
 /// processes are throttled too.
-pub struct EcoreAction {
-    ecores: cpu_set_t,
-    allcores: cpu_set_t,
+///
+/// On unsupported CPUs, `apply` and `revert` do nothing.
+pub enum EcoreAction {
+    Available {
+        ecores: Box<cpu_set_t>,
+        allcores: Box<cpu_set_t>,
+    },
+    Unavailable,
 }
 
 impl EcoreAction {
-    pub fn new() -> io::Result<Self> {
-        Ok(Self {
-            ecores: read_cpuset("/sys/devices/cpu_atom/cpus")?,
-            allcores: read_cpuset("/sys/devices/system/cpu/online")?,
-        })
+    pub fn new() -> Self {
+        match get_available() {
+            Ok(action) => action,
+            Err(e) => {
+                warn!("E-core action disabled: {e}");
+                Self::Unavailable
+            }
+        }
     }
 
     /// Applies E-Core affinity to all pids under the given cgroup.
     pub fn apply(&self, unit_path: &UnitPath) -> io::Result<()> {
-        set_affinity_for_cgroup(unit_path, &self.ecores)
+        if let EcoreAction::Available { ecores, .. } = self {
+            set_affinity_for_cgroup(unit_path, ecores)?;
+        }
+        Ok(())
     }
 
     /// Reverts E-Core affinity to all pids under the given cgroup.
     pub fn revert(&self, unit_path: &UnitPath) -> io::Result<()> {
-        set_affinity_for_cgroup(unit_path, &self.allcores)
+        if let EcoreAction::Available { allcores, .. } = self {
+            set_affinity_for_cgroup(unit_path, allcores)?;
+        }
+        Ok(())
     }
+}
+
+fn get_available() -> io::Result<EcoreAction> {
+    Ok(EcoreAction::Available {
+        ecores: Box::new(read_cpuset("/sys/devices/cpu_atom/cpus")?),
+        allcores: Box::new(read_cpuset("/sys/devices/system/cpu/online")?),
+    })
 }
 
 fn set_affinity_for_cgroup(unit_path: &UnitPath, cpuset: &cpu_set_t) -> io::Result<()> {

@@ -1,0 +1,44 @@
+[cpu_load_polling]
+interval_ms = 10000
+
+[cpu_load_polling.idle]
+# when to transition to idle
+# usage < usage_thres AND throttle < throttle_thres => idle
+usage_thres    = 0.10 # usage below => idle
+throttle_thres = 0.01 # and throttle below => idle
+confirm_ticks  = 2    # 1 poll = 1 tick
+
+[cpu_load_polling.busy]
+# when to transition to busy
+# usage > usage_thres OR throttle > throttle_thres => busy
+usage_thres    = 0.20 # usage above => busy
+throttle_thres = 0.05 # or throttle above => busy
+confirm_ticks  = 1
+
+[policies.performance]
+actions = [
+  { type = "systemd-cpu-weight", weight = 100 },
+]
+
+[policies.background_busy]
+actions = [
+  { type = "systemd-cpu-weight", weight = 1 },
+]
+
+[policies.background_idle]
+actions = [
+  { type = "systemd-cpu-weight", weight = 1 },
+  { type = "ecore" },
+]
+
+[policies.nap_idle] # full nap
+actions = [
+  { type = "systemd-cpu-quota", percent = 10 },
+  { type = "ecore" },
+]
+
+[policies.nap_busy]
+actions = [
+  { type = "systemd-cpu-quota", percent = 50 },
+  { type = "ecore" },
+]

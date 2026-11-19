@@ -1,8 +1,12 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use futures::StreamExt;
 use log::warn;
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use zbus::{MatchRule, MessageStream, message::Type, names::OwnedBusName};
 
 use crate::{
@@ -10,6 +14,8 @@ use crate::{
     daemon::channel_event::ChannelEvent,
     dbus::client::mpris::{MPRIS_PLAYER_PATH, MPRIS_PREFIX, MprisDBusProxy},
 };
+
+const PLAYER_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub struct MprisWatcher {
     dbus: MprisDBusProxy,
@@ -92,7 +98,20 @@ impl MprisWatcher {
 
         let mut states = HashMap::with_capacity(players.len());
         for player in players {
-            let state = self.resolve_player_state(&player).await;
+            // A frozen or hung player never answers; treat it as Unknown so
+            // it keeps its last known unit and does not block the refresh.
+            let state = match tokio::time::timeout(
+                PLAYER_TIMEOUT,
+                self.resolve_player_state(&player),
+            )
+            .await
+            {
+                Ok(state) => state,
+                Err(_) => {
+                    warn!("player {player} did not answer in {PLAYER_TIMEOUT:?}");
+                    PlayerState::Unknown
+                }
+            };
             states.insert(player, state);
         }
 
@@ -105,7 +124,7 @@ impl MprisWatcher {
             .is_ok()
     }
 
-    pub async fn watch(&mut self) -> zbus::Result<()> {
+    pub async fn watch(mut self) -> zbus::Result<()> {
         // All players share the MediaPlayer2 object path
         // Listen for media property changes (e.g. PlaybackStatus flips)
         // The payload is a trigger only, the real set is refetched in refresh()
@@ -121,28 +140,46 @@ impl MprisWatcher {
         // Listen for new/removing players
         let mut names = self.dbus.fdo().receive_name_owner_changed().await?;
 
-        if !self.refresh().await {
-            return Ok(());
-        }
+        // refresh() runs in its own task so the streams above are always
+        // drained. A full stream queue stalls the whole shared connection.
+        // Notify keeps at most one pending wakeup, so a burst of signals
+        // during a slow refresh causes exactly one more refresh.
+        let notify = Arc::new(Notify::new());
+        notify.notify_one(); // initial refresh
+
+        let mut refresher = tokio::spawn({
+            let notify = notify.clone();
+            async move {
+                loop {
+                    notify.notified().await;
+                    if !self.refresh().await {
+                        return; // the daemon's channel is gone
+                    }
+                }
+            }
+        });
 
         loop {
             tokio::select! {
                 change = changes.next() => {
-                    if change.is_none() || !self.refresh().await {
-                        return Ok(());
+                    if change.is_none() {
+                        break;
                     }
+                    notify.notify_one();
                 }
                 name = names.next() => {
-                    let Some(signal) = name else { return Ok(()) };
+                    let Some(signal) = name else { break };
                     let Ok(args) = signal.args() else { continue };
-                    if args.name().as_str().starts_with(MPRIS_PREFIX)
-                        && !self.refresh().await
-                    {
-                        return Ok(());
+                    if args.name().as_str().starts_with(MPRIS_PREFIX) {
+                        notify.notify_one();
                     }
                 }
+                _ = &mut refresher => break,
             }
         }
+
+        refresher.abort();
+        Ok(())
     }
 }
 
